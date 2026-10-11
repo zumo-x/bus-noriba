@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>バスのりばパズル</title>
+<meta name="description" content="駐車場のバスを出す順番を考えて、色ごとに並んだ人を乗せていく渋滞パズル。">
+<meta name="theme-color" content="#dde5ea" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#10181e" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="バスのりば">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+:root{color-scheme:light;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
+body{margin:0;font-size:14px}
+[hidden]{display:none!important}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=M+PLUS+Rounded+1c:wght@500;800&display=swap">
+<style>
+/* layout: one narrow column read top to bottom. people line, bus stop bays, parking-lot jam */
+:root{
+  --bg:#dde5ea; --panel:#f5f8fa; --ink:#17252e; --muted:#566974; --line:#c3ced6;
+  --track:#dde6ec; --road:#3d4952; --slot:#b4c0c8; --lot:#cbd5dc;
+  --accent:#0d6b85; --accent-ink:#ffffff;
+  --led-bg:#16110a; --led:#ffb319; --led-dim:#a87720; --scrim:rgba(18,28,35,.62);
+  --f-led:"DotGothic16","Osaka-Mono","MS Gothic",monospace;
+  --f-ui:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Yu Gothic UI",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#10181e; --panel:#1a252d; --ink:#e6edf1; --muted:#8fa1ac; --line:#2c3a44;
+    --track:#25333c; --road:#0a0f13; --slot:#56646e; --lot:#1e2a32;
+    --accent:#3aa9c4; --accent-ink:#06222b; --scrim:rgba(4,8,11,.72); color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#10181e; --panel:#1a252d; --ink:#e6edf1; --muted:#8fa1ac; --line:#2c3a44;
+  --track:#25333c; --road:#0a0f13; --slot:#56646e; --lot:#1e2a32;
+  --accent:#3aa9c4; --accent-ink:#06222b; --scrim:rgba(4,8,11,.72); color-scheme:dark;
+}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-ui);font-weight:500;
+  -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit;touch-action:manipulation}
+.app{max-width:440px;margin-inline:auto;padding-inline:16px;padding-block:12px 18px;
+  display:flex;flex-direction:column;gap:10px}
+
+.sign{display:flex;gap:8px;align-items:stretch}
+.led{flex:1;min-width:0;background:var(--led-bg);border-radius:8px;padding:7px 12px 8px;
+  font-family:var(--f-led);color:var(--led);border:2px solid #000;
+  background-image:radial-gradient(rgba(255,179,25,.09) 1px,transparent 1.4px);background-size:4px 4px}
+.led-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+#route{font-size:24px;line-height:1.1;letter-spacing:.04em}
+#left{font-size:15px;white-space:nowrap;font-variant-numeric:tabular-nums}
+#msg{font-size:14px;line-height:1.35;color:var(--led-dim);margin-top:3px;min-height:1.35em}
+#msg.hot{color:var(--led)}
+.nav{width:40px;border:0;border-radius:8px;background:var(--panel);font-size:22px;font-weight:800;
+  cursor:pointer;box-shadow:0 2px 0 var(--line)}
+.nav:disabled{opacity:.35;cursor:default}
+
+.stage{position:relative}
+canvas{display:block;width:100%;aspect-ratio:360/532;touch-action:manipulation;cursor:pointer;border-radius:12px}
+
+.ctl{display:flex;gap:8px}
+.btn{flex:1;border:0;border-radius:12px;padding:11px 6px;font-weight:800;font-size:14px;cursor:pointer;
+  background:var(--panel);box-shadow:0 3px 0 var(--line);white-space:nowrap}
+.btn.go{background:var(--accent);color:var(--accent-ink);box-shadow:0 3px 0 rgba(0,0,0,.3)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn:active:not(:disabled){translate:0 2px;box-shadow:none}
+.btn:focus-visible,.nav:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.btn small{font-weight:500;font-variant-numeric:tabular-nums;opacity:.8;margin-left:3px}
+
+.dialog{position:absolute;inset:0;background:var(--scrim);border-radius:12px;display:grid;place-items:center;padding:16px;z-index:5}
+.card{background:var(--panel);border-radius:16px;padding:20px 18px 16px;width:min(100%,310px);
+  display:flex;flex-direction:column;gap:12px;text-align:center}
+.card h2{margin:0;font-family:var(--f-led);font-weight:400;font-size:24px;line-height:1.2;text-wrap:balance}
+.card p{margin:0;color:var(--muted);font-size:14px;line-height:1.6}
+.card ol{margin:0;padding-left:1.4em;text-align:left;font-size:15px;line-height:1.55;display:flex;flex-direction:column;gap:6px}
+.card ol b{color:var(--accent);font-weight:800}
+.card .acts{display:flex;flex-direction:column;gap:8px}
+</style>
+</head>
+<body>
+<main class="app">
+  <header class="sign">
+    <button class="nav" id="prev" aria-label="前のレベルへ">‹</button>
+    <div class="led">
+      <div class="led-top"><span id="route">レベル 1</span><span id="left"></span></div>
+      <div id="msg" aria-live="polite"></div>
+    </div>
+    <button class="nav" id="next" aria-label="次のレベルへ">›</button>
+  </header>
+
+  <div class="stage">
+    <canvas id="cv" role="img" aria-label="ゲーム画面。上に人の列、まん中にのりば、下に駐車場"></canvas>
+    <div class="dialog" id="dialog" hidden></div>
+  </div>
+
+  <footer class="ctl">
+    <button class="btn" id="undo">1手もどす<small id="undoN">×3</small></button>
+    <button class="btn" id="retry">最初から</button>
+    <button class="btn" id="help">あそびかた</button>
+  </footer>
+</main>
+
+<script>
+(function(){
+"use strict";
+const COLORS=[
+  {n:"赤",c:"#e8453c",d:"#9c261f"},
+  {n:"青",c:"#2f80ed",d:"#1a4f99"},
+  {n:"黄",c:"#f7c325",d:"#a07700"},
+  {n:"緑",c:"#33b469",d:"#1c7542"},
+  {n:"紫",c:"#9258e0",d:"#5a3199"},
+  {n:"オレンジ",c:"#f58a1f",d:"#a2530a"},
+  {n:"ピンク",c:"#f06bb0",d:"#a53672"}
+];
+const W=360,H=532,QH=172,RY=172,RH=92,LOT={x:12,y:274,w:336,h:252},U=28,COLS=12,ROWS=9;
+const GATE={x:180,y:164},SW=54,SG=8,PARK=.9,SP=12,LW=12;
+const $=id=>document.getElementById(id);
+const cv=$("cv"),ctx=cv.getContext("2d"),dialogEl=$("dialog"),msgEl=$("msg");
+const RM=window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches;
+let TS=RM?6:1;
+
+/* ---------- geometry ---------- */
+function corners(x,y,a,hl,hw){const c=Math.cos(a),s=Math.sin(a);
+  return[[x+c*hl-s*hw,y+s*hl+c*hw],[x+c*hl+s*hw,y+s*hl-c*hw],[x-c*hl+s*hw,y-s*hl-c*hw],[x-c*hl-s*hw,y-s*hl+c*hw]];}
+function sat(A,B){
+  for(let k=0;k<2;k++){const P=k?B:A;
+    for(let i=0;i<2;i++){const ax=P[i+1][0]-P[i][0],ay=P[i+1][1]-P[i][1];
+      let a0=1e9,a1=-1e9,b0=1e9,b1=-1e9;
+      for(const p of A){const d=p[0]*ax+p[1]*ay;if(d<a0)a0=d;if(d>a1)a1=d;}
+      for(const p of B){const d=p[0]*ax+p[1]*ay;if(d<b0)b0=d;if(d>b1)b1=d;}
+      if(a1<=b0||b1<=a0)return false;}}
+  return true;
+}
+const box=b=>corners(b.x,b.y,b.a,b.len/2,b.w/2);
+const sweepOf=b=>corners(b.x+Math.cos(b.a)*(b.len/2+400),b.y+Math.sin(b.a)*(b.len/2+400),b.a,400,b.w/2-.5);
+
+/* ---------- levels ---------- */
+// Each level was searched offline: an exact solver proved it can be cleared, and its line order was tuned so that
+// "just tap the bus that matches the front person" loses more and more often as the levels go up.
+// s: bays, r: line is a ring, b: x,y,angle,size,colour per bus, q: colour of each person from the front.
+const LEVELS=[{"s":3,"r":0,"b":[222,414,90,2,2,152,456,0,2,0,166,358,270,2,1,166,498,270,2,0,320,512,180,2,1],"q":"11111100002211000022"},{"s":3,"r":0,"b":[264,512,180,2,1,152,456,180,2,0,320,428,0,2,1,166,358,90,2,0,320,372,180,2,2],"q":"11112200002211110000"},{"s":3,"r":0,"b":[124,288,180,2,2,222,512,0,3,1,110,344,180,3,2,250,386,90,2,0,110,400,270,3,0,292,372,180,2,1],"q":"222221100000111111110000022222"},{"s":3,"r":1,"b":[54,470,270,2,1,166,484,90,3,1,110,358,90,2,2,292,372,180,2,2,306,498,270,2,0,68,512,0,2,0],"q":"22000221110001111111222200"},{"s":3,"r":1,"b":[124,288,180,2,0,292,316,0,2,2,278,470,90,2,1,110,386,270,2,0,82,330,90,2,0,180,316,0,2,1,278,344,180,3,2],"q":"110022222000001112200000222111"},{"s":3,"r":1,"b":[54,400,270,3,1,110,330,270,2,2,250,456,270,3,0,299,457,45,2,0,222,344,270,3,0,195,456,45,2,1,278,316,90,3,2],"q":"112200000111222111110000000022000222"},{"s":3,"r":1,"b":[264,372,180,2,0,180,400,180,2,0,72,453,225,3,2,292,400,0,2,2,320,372,180,2,1,77,309,135,2,3,306,442,270,2,1,138,428,0,3,3],"q":"110033311003333322222330000222111122"},{"s":3,"r":1,"b":[292,288,0,2,0,47,476,45,2,0,54,386,90,2,1,152,400,180,2,1,77,328,135,2,3,292,344,180,2,3,214,434,225,2,2,159,448,315,2,2],"q":"00001133332211223311000011222233"},{"s":3,"r":1,"b":[264,316,0,2,1,54,414,90,2,0,278,428,0,3,2,222,358,270,2,0,179,407,315,2,3,96,428,180,2,3,82,372,270,3,0,107,492,315,2,1,110,344,90,3,2],"q":"002220033311111222000003333322200022211100"},{"s":3,"r":1,"b":[82,512,180,3,1,194,414,90,2,0,236,313,315,2,2,222,386,90,2,3,110,302,270,2,1,162,318,225,2,0,78,385,135,3,1,297,401,315,2,2,152,400,0,2,3,166,456,270,3,0],"q":"1111111000001110002222003300333311111122003322"},{"s":4,"r":1,"b":[286,314,225,2,1,110,470,90,2,0,26,470,90,2,2,138,442,90,2,3,306,414,270,2,3,54,470,90,2,2,264,484,180,2,0,194,512,0,3,0,334,442,90,2,1,194,456,0,3,2,244,342,135,2,1],"q":"113322200002222220000000113332200011112223331111"},{"s":4,"r":1,"b":[284,396,45,3,0,305,479,45,2,3,63,435,225,3,3,239,327,300,3,1,81,390,210,2,1,236,512,0,2,2,152,428,180,2,1,69,315,225,3,0,166,400,0,3,0,183,470,225,2,2,306,344,0,3,2],"q":"22233322000000111223332211111133222000223311100011000000"},{"s":4,"r":1,"b":[104,335,315,3,1,216,329,345,3,1,315,366,45,2,4,51,419,210,2,4,26,470,90,2,0,306,484,90,3,3,26,358,90,2,0,110,442,90,2,0,54,498,90,2,2,194,372,180,3,3,152,456,180,2,1,227,431,165,2,2],"q":"44221114433300220000033333311100011111220044333441112211"},{"s":4,"r":1,"b":[306,386,90,2,1,46,337,195,2,0,254,344,15,2,1,198,323,255,2,0,320,316,180,2,2,194,372,0,3,2,218,426,255,2,4,81,490,180,2,3,250,288,0,3,0,96,288,0,2,4,139,408,240,3,3,75,401,345,2,1],"q":"222111110000440000004443333002223333331100444112221112"},{"s":4,"r":1,"b":[49,481,75,2,4,194,512,0,3,2,314,350,0,2,2,300,306,255,2,2,278,456,270,3,0,222,428,0,3,0,138,386,90,2,3,208,456,0,2,1,72,355,135,3,4,82,470,90,2,1,180,484,180,2,0,182,359,90,2,1,231,367,180,2,3],"q":"002200011224441100000444442222223311331114433223311122000000"},{"s":4,"r":1,"b":[54,498,90,2,3,149,328,270,2,2,54,302,270,2,0,82,456,180,3,1,334,498,270,2,3,45,390,225,2,4,110,344,270,3,1,222,288,180,3,1,261,348,210,3,0,285,460,60,3,2,82,344,90,3,2,306,414,90,2,4,174,488,165,2,0],"q":"1110044000333000111222111222333224400111000044442233111222222111"},{"s":4,"r":1,"b":[73,436,195,3,1,260,490,30,3,3,54,316,270,3,4,334,470,90,2,2,182,482,30,2,0,226,433,120,2,1,110,484,180,3,1,110,302,270,2,2,96,372,180,2,3,289,294,180,2,0,165,349,240,3,3,82,400,180,3,2,304,340,240,2,4,220,337,150,2,0],"q":"22244444444443331111100333333300000033311111003332211100111222222222"},{"s":4,"r":1,"b":[60,450,165,2,2,166,302,270,2,2,79,351,135,2,4,166,428,270,3,1,110,484,90,3,4,222,316,270,3,1,194,386,90,2,0,222,442,270,2,2,194,302,90,2,3,236,512,180,2,1,267,384,120,2,3,85,301,15,2,0,294,320,180,3,0,306,456,270,3,3],"q":"111111444222233111110000223344442244433220002233333300111000001133"},{"s":4,"r":1,"b":[334,428,90,3,3,110,302,270,2,5,141,493,75,2,2,35,492,75,2,1,184,460,60,3,4,250,400,0,3,0,100,454,90,2,2,315,329,0,2,0,296,499,0,2,5,43,445,30,2,1,55,412,210,2,3,166,330,270,2,2,320,288,0,2,1,83,368,315,2,0,54,316,90,3,4],"q":"22112200022000222200444444555335511221133311000044455511110033344433"},{"s":4,"r":1,"b":[54,498,90,2,2,306,423,30,2,5,36,330,255,3,5,264,512,0,2,1,82,316,270,3,1,258,447,90,3,0,66,433,240,2,4,102,471,105,2,0,86,393,75,2,2,190,488,180,3,3,259,368,15,3,4,180,400,0,2,1,128,295,195,2,2,133,357,270,2,3,138,414,270,2,0],"q":"5554411100445110000055511100022333222222333111122223333001100444444555"},{"s":4,"r":1,"b":[222,512,0,3,3,270,416,30,3,0,43,439,225,2,2,53,350,300,3,0,166,498,90,2,0,268,306,330,2,4,138,484,90,3,4,78,413,210,2,3,166,428,180,3,1,139,298,345,3,1,306,477,15,2,2,196,361,240,3,2,236,484,0,2,5,90,501,0,2,5,299,375,165,2,3,142,352,15,2,1],"q":"333222333111550005544422211100332211111122222233000555500000444111100044333344"},{"s":4,"r":1,"b":[113,308,255,2,1,289,459,0,3,5,55,394,240,2,2,320,288,0,2,4,166,490,60,2,3,306,512,0,3,2,334,372,90,3,2,209,307,300,2,1,149,374,270,2,0,292,372,0,2,0,61,334,240,2,4,278,400,0,3,0,264,316,0,2,3,222,372,180,3,1,165,430,300,2,3,106,451,330,2,5],"q":"33113322222442225551133222222332244003355111331144110000000555445511100000"},{"s":4,"r":1,"b":[250,344,270,3,0,89,458,195,2,5,58,493,210,3,4,82,288,180,3,1,152,484,180,2,5,309,480,135,2,1,166,302,270,2,1,320,344,0,2,2,105,373,180,2,2,205,352,255,2,4,217,492,150,3,3,250,414,90,2,0,306,316,0,3,2,161,393,255,3,0,307,405,285,2,3,87,326,30,2,3,278,386,90,2,4],"q":"22255522255555114400011441122222333333444000002220001110000033444433331114441133"},{"s":4,"r":1,"b":[68,456,180,2,0,26,498,90,2,2,303,391,315,2,5,166,302,270,2,5,263,303,315,2,1,319,309,225,2,2,306,470,90,2,1,194,470,90,2,0,66,301,165,2,1,82,484,180,3,4,138,512,180,3,4,250,512,180,3,4,251,449,150,3,2,149,400,75,3,3,222,414,90,2,3,138,302,90,2,3,74,337,330,3,0],"q":"44422221155222211114445511551133333300444115533300000003334440044444400033222222"},{"s":4,"r":1,"b":[236,288,0,2,5,334,470,90,2,0,278,498,90,2,3,26,470,90,2,3,68,512,180,2,2,278,372,0,3,0,82,316,180,3,2,82,456,180,3,6,292,316,180,2,5,189,482,45,3,1,306,428,270,3,4,96,288,180,2,2,334,330,90,2,3,250,456,90,3,4,208,344,0,2,6,76,390,90,3,0,152,288,180,2,1,142,385,300,2,1],"q":"22003331113330033322211111133366655222000666550004445522225544400000044411166224441166"},{"s":4,"r":1,"b":[312,491,0,2,2,82,456,180,3,2,315,307,345,2,0,138,470,90,2,1,301,461,0,2,5,166,484,90,3,3,26,498,90,2,4,194,498,90,2,3,82,428,180,3,4,298,339,345,2,3,293,395,90,2,6,166,400,0,3,1,110,288,180,3,6,68,512,180,2,1,236,512,180,2,0,236,456,180,2,0,232,330,90,3,5,180,316,0,2,2],"q":"222115555332200003333334444443331166661112211166666611114444005550000222002255533322"},{"s":4,"r":1,"b":[222,512,0,3,5,306,400,0,3,5,68,288,180,2,0,264,428,0,2,2,82,330,270,2,0,129,328,240,2,3,196,360,210,2,6,229,346,210,2,1,296,326,270,2,3,252,308,330,2,6,171,416,300,3,2,123,489,105,2,0,194,484,180,3,3,54,512,0,3,1,77,426,105,3,4,297,466,165,3,2,334,344,90,3,4,292,372,0,2,1],"q":"2222000033330011113333006662222226661166555000033355522222244411111144455544433344411555"},{"s":4,"r":1,"b":[320,316,0,2,2,278,302,270,2,3,41,350,270,3,5,292,400,0,2,6,306,484,0,3,6,138,344,270,3,3,26,498,90,2,4,96,372,180,2,1,250,302,90,2,5,208,400,0,2,4,96,433,300,3,3,291,369,0,2,0,138,484,90,3,2,208,484,180,2,0,189,345,315,2,1,320,512,180,2,0,306,442,90,2,2,180,428,0,2,1],"q":"3322333551112266666600555111113333330055333664433555220000004442222224446600112211"},{"s":4,"r":1,"b":[43,321,270,2,4,168,497,90,2,0,131,340,210,3,3,166,302,270,2,4,96,512,180,2,0,304,304,345,2,3,306,484,0,3,6,110,414,270,2,2,34,462,105,2,1,306,344,0,3,1,82,400,90,3,5,334,400,270,3,2,278,512,180,3,5,306,428,270,3,1,217,453,45,2,6,278,386,270,2,3,226,325,30,2,0,179,422,300,2,2],"q":"22666443333333333666444111000011111115552225556644433006622332220000001115555552211122"},{"s":4,"r":1,"b":[82,400,180,3,6,303,485,45,2,2,36,472,90,3,2,311,379,330,2,4,73,481,90,3,3,39,357,120,2,0,138,498,90,2,4,110,372,180,3,1,138,428,180,3,5,195,313,270,2,1,201,478,135,2,0,138,344,180,3,6,106,300,150,2,3,278,288,180,3,0,277,347,255,2,1,236,372,0,2,5,110,498,270,2,2,250,512,180,3,3],"q":"2224400555222111133333322221110000111666005550006661144440003344556666665533322331133322"},{"s":4,"r":1,"b":[47,369,180,2,0,194,302,270,2,1,250,372,90,3,0,60,477,120,2,2,26,442,90,2,1,306,456,0,3,4,39,312,285,2,5,292,428,0,2,2,87,335,210,2,3,298,381,120,2,3,166,344,270,3,0,222,316,270,3,4,77,423,120,2,3,299,321,195,3,1,201,460,105,2,5,334,498,270,2,6,292,484,0,2,2,137,466,150,3,6],"q":"000000110022660044444455223335533000330001144444433311112266553355666666222222111111"},{"s":4,"r":1,"b":[283,315,300,2,4,264,512,0,2,2,26,414,90,2,0,292,428,0,2,3,301,473,345,3,3,54,498,90,2,1,250,386,90,2,0,54,316,270,3,2,82,330,270,2,6,54,400,270,3,4,166,512,180,3,1,138,428,180,3,3,166,456,180,3,1,306,372,0,3,2,236,288,0,2,0,222,498,270,2,5,110,484,0,3,5,138,372,90,3,6],"q":"222233114433333333000000112226666222111111333333111111555444444555222222000055446660066655"},{"s":4,"r":1,"b":[211,437,45,2,5,50,363,135,2,1,222,344,270,3,0,278,316,0,3,1,320,288,0,2,3,45,482,135,2,2,279,352,345,2,3,166,288,0,3,6,96,400,180,2,1,41,434,180,2,4,117,335,105,2,2,334,386,90,2,3,175,480,90,2,0,166,354,315,3,0,166,414,90,2,6,250,400,165,2,4,278,442,270,2,5,125,487,285,2,2],"q":"00033441111111122334411225500066666221111335500066666003344330004422332255550022"},{"s":4,"r":1,"b":[82,330,270,2,0,334,316,270,3,3,194,470,90,2,6,53,486,165,2,3,306,330,270,2,2,154,469,75,3,3,305,443,300,2,1,98,480,90,2,4,54,302,270,2,4,130,403,120,3,0,250,372,0,3,1,254,432,315,2,1,188,419,330,2,2,45,378,285,2,5,40,443,0,2,2,26,302,90,2,0,144,324,150,2,6,238,320,315,2,5],"q":"00336666333333333311004444223300011111111111122222255335500002266444455550006622"},{"s":4,"r":1,"b":[56,303,135,2,5,334,302,270,2,6,63,459,195,3,1,265,335,345,3,0,110,330,270,2,1,111,387,270,2,2,314,486,75,2,5,54,365,300,3,1,71,490,195,3,3,222,512,0,3,3,292,288,0,2,4,152,288,180,2,3,222,464,30,2,4,211,323,330,3,2,152,512,180,2,0,301,383,225,3,0,138,372,270,3,2,247,439,225,3,6],"q":"000000111111222211551111111144333553333344555544222334433000000022266666622266662220003333"},{"s":4,"r":1,"b":[194,316,270,3,3,271,454,135,3,3,269,495,135,2,2,68,456,180,2,1,334,484,90,3,0,306,302,270,2,1,51,305,150,2,0,138,302,270,2,1,250,358,90,2,0,152,456,0,2,4,250,316,0,3,5,64,501,180,3,2,61,404,120,2,3,298,373,300,3,4,138,344,0,3,6,162,491,165,3,6,110,428,90,3,2,110,302,90,2,5],"q":"666001111444444221111333666110000011222222555555443330003333336662266600002223355334455222"},{"s":4,"r":1,"b":[82,316,270,3,3,203,447,90,2,4,334,358,90,2,2,103,468,75,3,5,264,288,0,2,0,166,484,90,3,0,320,316,0,2,0,271,361,330,2,6,206,334,270,2,2,278,414,270,2,1,82,386,270,2,1,166,400,0,3,1,152,288,0,2,4,129,348,300,3,3,248,460,240,3,2,54,302,270,2,5,46,483,270,3,6,292,512,180,2,3],"q":"33333344003300000000555000055544111111111111114444333222222225555666333223366666622226"},{"s":4,"r":1,"b":[320,318,0,2,2,264,288,0,2,6,152,288,0,2,2,57,414,195,2,0,270,474,75,2,6,233,388,0,2,4,166,498,90,2,5,306,428,0,3,3,54,498,90,2,4,236,428,0,2,3,222,498,90,2,5,124,512,0,2,1,58,342,225,2,1,138,372,90,3,0,95,308,180,2,3,245,332,345,2,0,166,316,0,3,2,99,416,285,3,1],"q":"66662233554455333335544334455000011333112211222233112222220011144000111666600000"},{"s":4,"r":1,"b":[320,288,0,2,4,222,498,90,2,5,250,484,90,3,2,99,495,45,2,2,312,494,165,2,0,250,302,270,2,1,334,330,270,2,0,145,326,285,2,1,166,470,270,2,3,44,463,225,2,3,118,449,60,3,0,306,330,270,2,4,278,316,270,3,3,208,316,0,2,6,246,366,240,2,2,82,372,90,3,6,306,456,0,3,1,291,390,75,2,5],"q":"2222555500004444000011113366633222200000033331111333223336622666664444555511111122"},{"s":4,"r":1,"b":[334,302,270,2,1,320,456,0,2,3,317,398,300,2,2,334,498,90,2,4,47,429,180,2,1,88,484,90,2,6,292,288,0,2,3,180,512,0,2,5,171,449,105,2,1,54,498,90,2,3,208,484,180,2,0,50,320,255,2,6,76,397,180,2,2,113,437,195,2,0,194,330,270,2,0,250,442,90,2,5,270,343,45,3,2,152,397,315,2,4],"q":"11111111666600005522221155333333004400666622223300004422222255554444333311"}];
+function levelData(L){
+  if(L<=LEVELS.length)return{d:LEVELS[L-1],mirror:false,shift:0};
+  const k=L-LEVELS.length-1,c=Math.floor(k/20);
+  return{d:LEVELS[20+k%20],mirror:c%2===0,shift:(c*2+3)%7};
+}
+function unpack(L){
+  const {d,mirror,shift}=levelData(L),buses=[];
+  for(let i=0;i<d.b.length;i+=5){
+    let x=d.b[i],deg=d.b[i+2];if(mirror){x=360-x;deg=(540-deg)%360;}
+    const size=d.b[i+3];
+    buses.push({x,y:d.b[i+1],a:deg*Math.PI/180,len:size*U-4,w:U-4,cap:size===3?6:4,color:(d.b[i+4]+shift)%7});
+  }
+  const blk=buses.map((p,i)=>{const sw=sweepOf(p),r=[];buses.forEach((o,j)=>{if(j!==i&&sat(sw,box(o)))r.push(j);});return r;});
+  return{buses,blk,slots:d.s,ring:!!d.r,queue:d.q.split("").map(ch=>(+ch+shift)%7)};
+}
+
+/* ---------- the line of people ---------- */
+function makePath(ring,n){
+  const A=Math.ceil(n/2)*SP>560?3:2,need=Math.ceil(n/A)*SP+8;
+  let pts;
+  if(ring){
+    for(let ry=Math.max(34,Math.min(62,need/9.93*.9));;ry+=2){
+      const cy=84,rx=ry*2;pts=[[GATE.x,GATE.y]];
+      for(let i=0;i<=140;i++){const t=Math.PI/2+i/140*Math.PI*2;pts.push([GATE.x+rx*Math.cos(t),cy+ry*Math.sin(t)]);}
+      if(plen(pts)>=need||ry>=64)break;
+    }
+  }else{
+    const v=[[180,164],[180,46],[84,46],[84,136]],r=18;pts=[v[0]];
+    for(let i=1;i<v.length-1;i++){
+      const p=v[i-1],q=v[i],s=v[i+1];
+      const d1=Math.hypot(q[0]-p[0],q[1]-p[1]),d2=Math.hypot(s[0]-q[0],s[1]-q[1]);
+      const a=[q[0]-(q[0]-p[0])/d1*r,q[1]-(q[1]-p[1])/d1*r],b=[q[0]+(s[0]-q[0])/d2*r,q[1]+(s[1]-q[1])/d2*r];
+      for(let k=0;k<=8;k++){const t=k/8,u=1-t;pts.push([u*u*a[0]+2*u*t*q[0]+t*t*b[0],u*u*a[1]+2*u*t*q[1]+t*t*b[1]]);}
+    }
+    pts.push(v[v.length-1]);
+  }
+  const cum=[0];for(let i=1;i<pts.length;i++)cum.push(cum[i-1]+Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]));
+  return{pts,cum,len:cum[cum.length-1],A,show:ring?cum[cum.length-1]:Math.min(cum[cum.length-1],need+10)};
+}
+function plen(p){let s=0;for(let i=1;i<p.length;i++)s+=Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]);return s;}
+function posAt(P,s){
+  s=Math.max(0,Math.min(P.len-.01,s));
+  let lo=0,hi=P.cum.length-1;
+  while(hi-lo>1){const m=(lo+hi)>>1;if(P.cum[m]<=s)lo=m;else hi=m;}
+  const a=P.pts[lo],b=P.pts[hi],L=P.cum[hi]-P.cum[lo]||1,t=(s-P.cum[lo])/L,dx=(b[0]-a[0])/L,dy=(b[1]-a[1])/L;
+  return{x:a[0]+(b[0]-a[0])*t,y:a[1]+(b[1]-a[1])*t,nx:-dy,ny:dx};
+}
+
+/* ---------- state ---------- */
+let G=null,maxL=1,seenHelp=false,TH={},sc=1;
+function loadSave(){try{const s=JSON.parse(localStorage.getItem("busnoriba.v3")||"{}");return{max:Math.max(1,s.max|0),cur:Math.max(1,s.cur|0),help:!!s.help}}catch(e){return{max:1,cur:1,help:false}}}
+function save(){try{localStorage.setItem("busnoriba.v3",JSON.stringify({max:maxL,cur:G.L,help:seenHelp}))}catch(e){}}
+function say(t,hot){msgEl.textContent=t;msgEl.classList.toggle("hot",!!hot);}
+function intro(L){
+  if(L===1)return "列の色の順を見て、出す順を考えよう";
+  if(L===2)return "ちがう色を出すと、のりばを1台ふさぐ";
+  if(L===3)return "長いバスは6人、短いバスは4人";
+  if(L===4)return "列が輪になった。回りながら進む";
+  if(L===6)return "ななめに停まったバスが登場";
+  if(L===11)return "のりばが4台に。そのぶんバスも増えた";
+  if(L===12)return "いろんな向きのバスが登場";
+  return G.queue.length+"人を バス"+G.buses.length+"台で運ぶ";
+}
+function load(L){
+  const lv=unpack(L);
+  G={L,slots:lv.slots,ring:lv.ring,queue:lv.queue,blk:lv.blk,qi:0,qv:0,
+    buses:lv.buses.map((b,i)=>({id:i,x:b.x,y:b.y,a:b.a,len:b.len,w:b.w,cap:b.cap,color:b.color,
+      state:"lot",slot:-1,rem:b.cap,order:0,t:0,d:0,dmax:0,flash:0})),
+    bay:new Array(lv.slots).fill(-1),seq:0,walkers:[],hist:[],undos:3,used:0,over:false,stuckT:0,acc:0,
+    path:makePath(lv.ring,lv.queue.length),hud:""};
+  dialogEl.hidden=true;
+  say(intro(L));save();
+}
+const slotX=i=>(W-(G.slots*SW+(G.slots-1)*SG))/2+i*(SW+SG)+SW/2;
+const slotY=RY+RH/2+2;
+
+/* ---------- play ---------- */
+const inLot=o=>o.state==="lot"||o.state==="bump";
+// Whether a bus can leave is decided by the same blocker table the levels were solved with.
+function probe(b){
+  const c=Math.cos(b.a),s=Math.sin(b.a),blockers=G.blk[b.id].map(j=>G.buses[j]).filter(inLot);
+  if(blockers.length){
+    const boxes=blockers.map(o=>[o,box(o)]);
+    for(let d=2;d<700;d+=2){
+      const me=corners(b.x+c*d,b.y+s*d,b.a,b.len/2,b.w/2-.5);
+      for(const o of boxes)if(sat(me,o[1]))return{clear:false,d:d-2,blocker:o[0]};
+    }
+    return{clear:false,d:4,blocker:blockers[0]};
+  }
+  for(let d=2;d<700;d+=2){
+    const x=b.x+c*d,y=b.y+s*d;
+    if(x<LOT.x-8-b.len/2||x>LOT.x+LOT.w+8+b.len/2||y<LOT.y-8-b.len/2||y>LOT.y+LOT.h+8+b.len/2)return{clear:true,d};
+  }
+  return{clear:true,d:700};
+}
+function snap(){return{qi:G.qi,seq:G.seq,bay:G.bay.slice(),b:G.buses.map(b=>{
+  let st=b.state;if(st==="bump")st="lot";else if(st==="exit"||st==="arrive")st="parked";else if(st==="leave")st="gone";
+  return[st,b.slot,b.rem,b.order];})};}
+function tapBus(b){
+  if(!G||G.over||b.state!=="lot")return;
+  const pr=probe(b);
+  if(!pr.clear){b.state="bump";b.t=0;b.dmax=Math.max(3,pr.d);pr.blocker.flash=340;say("前のバスがじゃまで出られない");return;}
+  const s=G.bay.indexOf(-1);
+  if(s<0){b.state="bump";b.t=0;b.dmax=4;say("のりばがいっぱい。乗り終わるまで待とう",true);return;}
+  G.hist.push(snap());
+  b.state="exit";b.t=0;b.d=0;b.dmax=pr.d;b.slot=s;b.order=++G.seq;G.bay[s]=b.id;
+}
+function board(){
+  if(G.qi>=G.queue.length)return;
+  const c=G.queue[G.qi];let b=null;
+  for(const o of G.buses)if(o.state==="parked"&&o.color===c&&o.rem>0&&(!b||o.order<b.order))b=o;
+  if(!b)return;
+  b.rem--;G.qi++;
+  G.walkers.push({c,t:0,x:slotX(b.slot),y:slotY-b.len*PARK/2+4});
+  if(b.rem===0){b.state="full";b.t=0;}
+}
+function isStuck(){
+  if(G.qi>=G.queue.length||G.bay.indexOf(-1)>=0)return false;
+  const c=G.queue[G.qi];
+  for(const id of G.bay){const b=G.buses[id];if(b.state!=="parked")return false;if(b.color===c&&b.rem>0)return false;}
+  return true;
+}
+function update(dt){
+  dt*=TS;
+  for(const b of G.buses){
+    if(b.flash>0)b.flash-=dt;
+    if(b.state==="bump"){b.t+=dt/240;if(b.t>=1){b.state="lot";b.t=0;}}
+    else if(b.state==="exit"){b.t+=dt/300;b.d+=dt*.5*(.6+b.t);if(b.d>=b.dmax){b.state="arrive";b.t=0;}}
+    else if(b.state==="arrive"){b.t+=dt/230;if(b.t>=1){b.state="parked";b.t=0;}}
+    else if(b.state==="full"){b.t+=dt/300;if(b.t>=1){b.state="leave";b.t=0;G.bay[b.slot]=-1;}}
+    else if(b.state==="leave"){b.t+=dt/320;if(b.t>=1)b.state="gone";}
+  }
+  G.acc+=dt;while(G.acc>=62){G.acc-=62;board();}
+  for(const w of G.walkers)w.t+=dt/230;
+  G.walkers=G.walkers.filter(w=>w.t<1);
+  G.qv+=(G.qi-G.qv)*Math.min(1,dt*.012);if(G.qi-G.qv<.01)G.qv=G.qi;
+  if(!G.over){
+    if(G.qi>=G.queue.length&&G.buses.every(b=>b.state==="gone"))win();
+    else if(isStuck()){G.stuckT+=dt;if(G.stuckT>500)lose();}else G.stuckT=0;
+  }
+  const hud=G.L+"|"+(G.queue.length-G.qi)+"|"+G.undos+"|"+G.hist.length+"|"+maxL+"|"+G.over;
+  if(hud!==G.hud){G.hud=hud;
+    $("route").textContent="レベル "+G.L;
+    $("left").textContent="のこり "+(G.queue.length-G.qi)+"人";
+    $("undoN").textContent="×"+G.undos;
+    $("undo").disabled=!G.hist.length||G.undos<=0;
+    $("prev").disabled=G.L<=1;$("next").disabled=G.L>=maxL;}
+}
+function lose(){
+  G.over=true;const c=COLORS[G.queue[G.qi]].n;
+  say("のりばがいっぱいで動けない",true);
+  show("のりばが満車","<p>先頭の"+c+"の人が乗れるバスが、のりばに1台もない。</p>",
+    (G.undos>0?[["1手もどす（のこり"+G.undos+"回）",undo,true]]:[]).concat([["最初からやり直す",()=>load(G.L),G.undos<=0]]));
+}
+function win(){
+  G.over=true;if(G.L+1>maxL)maxL=G.L+1;save();
+  say("全員のせた。発車オーライ",true);
+  show("レベル "+G.L+" クリア","<p>"+G.queue.length+"人を バス"+G.buses.length+"台で運んだ。もどした回数 "+G.used+"</p>",
+    [["レベル "+(G.L+1)+" へ",()=>load(G.L+1),true],["もう一度このレベル",()=>load(G.L),false]]);
+}
+function howto(){
+  show("あそびかた","<ol><li>下の駐車場で、<b>矢印の先があいているバス</b>をタップ</li><li>バスが「のりば」に停まる</li><li>列の先頭から、<b>同じ色の人</b>が乗る。満員になったら発車</li></ol><p>のりばが全部うまって、先頭の人が乗れなくなったら負け。ちがう色のバスは、その色の人が先頭に来るまでのりばをふさぐ。バスの数字は乗れる人数。</p>",
+    [["はじめる",()=>{dialogEl.hidden=true;seenHelp=true;save();},true]]);
+}
+function show(title,html,acts){
+  dialogEl.innerHTML='<div class="card" role="dialog" aria-label="'+title+'"><h2>'+title+"</h2>"+html+'<div class="acts"></div></div>';
+  const boxEl=dialogEl.querySelector(".acts");
+  acts.forEach(a=>{const b=document.createElement("button");b.type="button";b.className="btn"+(a[2]?" go":"");b.textContent=a[0];b.addEventListener("click",a[1]);boxEl.appendChild(b);});
+  dialogEl.hidden=false;
+  const f=boxEl.querySelector("button");if(f)f.focus({preventScroll:true});
+}
+function undo(){
+  if(!G.hist.length||G.undos<=0)return;
+  const s=G.hist.pop();
+  G.undos--;G.used++;G.over=false;G.stuckT=0;dialogEl.hidden=true;
+  G.qi=s.qi;G.qv=s.qi;G.seq=s.seq;G.bay=s.bay;G.walkers=[];
+  G.buses.forEach((b,i)=>{b.state=s.b[i][0];b.slot=s.b[i][1];b.rem=s.b[i][2];b.order=s.b[i][3];b.t=0;b.d=0;b.flash=0;});
+  say("1手もどした");
+}
+
+/* ---------- drawing ---------- */
+function readTheme(){const cs=getComputedStyle(document.documentElement);
+  for(const k of["panel","track","road","slot","lot","ink","muted"])TH[k]=cs.getPropertyValue("--"+k).trim();}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function drawBus(x,y,a,len,w,col,label,flash,scale,cap){
+  ctx.save();ctx.translate(x,y);ctx.rotate(a);if(scale)ctx.scale(scale,scale);
+  ctx.fillStyle="rgba(0,0,0,.28)";rr(-len/2+1.5,-w/2+2.5,len,w,6);ctx.fill();
+  ctx.fillStyle=col.c;rr(-len/2,-w/2,len,w,6);ctx.fill();
+  ctx.lineWidth=1.6;ctx.strokeStyle=col.d;ctx.stroke();
+  ctx.fillStyle="rgba(255,255,255,.6)";rr(len/2-9,-w/2+3.5,5,w-7,2);ctx.fill();
+  
+  if(label==null){
+    const L=len;ctx.beginPath();ctx.moveTo(-.2*L,-2.3);ctx.lineTo(.06*L,-2.3);ctx.lineTo(.06*L,-6.2);ctx.lineTo(.26*L,0);
+    ctx.lineTo(.06*L,6.2);ctx.lineTo(.06*L,2.3);ctx.lineTo(-.2*L,2.3);ctx.closePath();
+    ctx.fillStyle="#fff";ctx.fill();ctx.lineWidth=1;ctx.strokeStyle=col.d;ctx.stroke();
+  }
+  if(flash>0){ctx.fillStyle="rgba(255,255,255,"+(.6*flash/340)+")";rr(-len/2,-w/2,len,w,6);ctx.fill();}
+  ctx.restore();
+  if(cap){
+    const cx=x-Math.cos(a)*(len/2-10),cy=y-Math.sin(a)*(len/2-10);
+    ctx.font="800 10px "+FONT;ctx.textAlign="center";ctx.textBaseline="middle";
+    ctx.lineWidth=2.5;ctx.strokeStyle=col.d;ctx.strokeText(cap,cx,cy+.5);ctx.fillStyle="#fff";ctx.fillText(cap,cx,cy+.5);
+  }
+  if(label!=null){
+    ctx.font="800 15px "+FONT;ctx.textAlign="center";ctx.textBaseline="middle";
+    ctx.lineWidth=3.5;ctx.strokeStyle=col.d;ctx.strokeText(label,x,y+3);ctx.fillStyle="#fff";ctx.fillText(label,x,y+3);
+  }
+}
+function pawn(x,y,col){
+  ctx.fillStyle=col.c;ctx.strokeStyle=col.d;ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(x-5.2,y);ctx.quadraticCurveTo(x-5.6,y-9.5,x,y-9.5);ctx.quadraticCurveTo(x+5.6,y-9.5,x+5.2,y);
+  ctx.quadraticCurveTo(x,y+2.2,x-5.2,y);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.beginPath();ctx.arc(x,y-13,4.3,0,7);ctx.fill();ctx.stroke();
+  ctx.fillStyle="rgba(255,255,255,.45)";ctx.beginPath();ctx.arc(x-1.3,y-14.300,1.4,0,7);ctx.fill();
+}
+let FONT='"M PLUS Rounded 1c","Hiragino Maru Gothic ProN",system-ui,sans-serif';
+const ease=t=>1-(1-t)*(1-t);
+function draw(now){
+  ctx.setTransform(sc,0,0,sc,0,0);ctx.clearRect(0,0,W,H);
+  // people zone
+  ctx.fillStyle=TH.panel;rr(0,0,W,QH-6,12);ctx.fill();
+  const P=G.path;
+  ctx.strokeStyle=TH.track;ctx.lineWidth=P.A*LW+9;ctx.lineCap="round";ctx.lineJoin="round";ctx.beginPath();
+  for(let i=0;i<P.pts.length&&P.cum[i]<=P.show;i++){const p=P.pts[i];if(i)ctx.lineTo(p[0],p[1]);else ctx.moveTo(p[0],p[1]);}
+  ctx.stroke();
+  if(G.qi<G.queue.length){
+    ctx.font="800 10px "+FONT;ctx.textAlign="left";ctx.textBaseline="middle";ctx.fillStyle=TH.muted;
+    ctx.fillText("◀ 先頭",GATE.x+P.A*LW/2+10,GATE.y-6);
+  }
+  const ppl=[];
+  for(let k=G.qi;k<G.queue.length;k++){
+    const p=posAt(P,(k-G.qv)/P.A*SP),off=((k%P.A)-(P.A-1)/2)*LW;
+    ppl.push([p.x+p.nx*off,p.y+p.ny*off,G.queue[k]]);
+  }
+  ppl.sort((a,b)=>a[1]-b[1]);
+  for(const p of ppl)pawn(p[0],p[1],COLORS[p[2]]);
+  // bus stop bays
+  ctx.fillStyle=TH.road;rr(0,RY,W,RH,12);ctx.fill();
+  ctx.save();rr(0,RY,W,RH,12);ctx.clip();
+  ctx.strokeStyle=TH.slot;ctx.lineWidth=1.5;ctx.setLineDash([5,4]);
+  for(let i=0;i<G.slots;i++){rr(slotX(i)-SW/2,RY+8,SW,RH-16,8);ctx.stroke();}
+  ctx.setLineDash([]);
+  for(const b of G.buses){
+    if(b.slot<0)continue;const x=slotX(b.slot),col=COLORS[b.color];
+    if(b.state==="arrive")drawBus(x,slotY+(1-ease(b.t))*RH,-Math.PI/2,b.len,b.w,col,b.rem,0,PARK);
+    else if(b.state==="parked"||b.state==="full")drawBus(x,slotY,-Math.PI/2,b.len,b.w,col,b.rem,0,PARK);
+    else if(b.state==="leave")drawBus(x,slotY-b.t*b.t*(RH+30),-Math.PI/2,b.len,b.w,col,null,0,PARK);
+  }
+  ctx.restore();
+  for(const w of G.walkers){const t=ease(w.t);pawn(GATE.x+(w.x-GATE.x)*t,GATE.y+(w.y+8-GATE.y)*t,COLORS[w.c]);}
+  // parking lot
+  ctx.fillStyle=TH.lot;rr(LOT.x-8,LOT.y-8,LOT.w+16,LOT.h+16,12);ctx.fill();
+  ctx.save();rr(LOT.x-8,LOT.y-8,LOT.w+16,LOT.h+16,12);ctx.clip();
+  for(const b of G.buses){
+    let d=0;
+    if(b.state==="bump")d=b.dmax*Math.sin(Math.PI*b.t);
+    else if(b.state==="exit")d=b.d;
+    else if(b.state!=="lot")continue;
+    drawBus(b.x+Math.cos(b.a)*d,b.y+Math.sin(b.a)*d,b.a,b.len,b.w,COLORS[b.color],null,b.flash,0,b.cap);
+  }
+  ctx.restore();
+}
+
+/* ---------- wiring ---------- */
+function fit(){const cw=cv.clientWidth||360,dpr=Math.min(3,window.devicePixelRatio||1);
+  cv.width=Math.round(cw*dpr);cv.height=Math.round(cw*H/W*dpr);sc=cv.width/W;}
+cv.addEventListener("pointerdown",e=>{
+  if(!G||G.over)return;
+  const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)*W/r.width,y=(e.clientY-r.top)*H/r.height;
+  let hit=null,hd=1e9;
+  for(const b of G.buses){ if(b.state!=="lot")continue;
+    const dx=x-b.x,dy=y-b.y,c=Math.cos(b.a),s=Math.sin(b.a),lx=dx*c+dy*s,ly=-dx*s+dy*c;
+    if(Math.abs(lx)<=b.len/2+4&&Math.abs(ly)<=b.w/2+4){const d=dx*dx+dy*dy;if(d<hd){hd=d;hit=b;}}}
+  if(hit)tapBus(hit);
+});
+$("undo").addEventListener("click",undo);
+$("retry").addEventListener("click",()=>load(G.L));
+$("help").addEventListener("click",howto);
+$("prev").addEventListener("click",()=>{if(G.L>1)load(G.L-1);});
+$("next").addEventListener("click",()=>{if(G.L<maxL)load(G.L+1);});
+window.addEventListener("resize",fit);
+if(window.ResizeObserver)new ResizeObserver(fit).observe(cv);
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",readTheme);
+new MutationObserver(readTheme).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
+
+let last=0;
+function frame(now){
+  const dt=Math.min(50,now-(last||now));last=now;
+  if(G){update(dt);draw(now);}
+  requestAnimationFrame(frame);
+}
+function start(d){
+  const s=loadSave();maxL=s.max;seenHelp=s.help;
+  readTheme();fit();
+  load(Math.min((d&&d.level)||s.cur||1,maxL));
+  if(!seenHelp)howto();
+  requestAnimationFrame(frame);
+}
+window.__busnoriba={get G(){return G},load,tap:id=>tapBus(G.buses[id]),speed:v=>{TS=v;}};
+try{window.claude?.hot?.snapshot?.(()=>({level:G?G.L:1}));}catch(e){}
+if(window.claude?.hot?.ready)window.claude.hot.ready(start);else start(window.claude?.hot?.data??{});
+})();
+</script>
+</body>
+</html>
