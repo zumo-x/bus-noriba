@@ -270,14 +270,15 @@ async function initCloud(){
   }catch(e){}
 }
 /* ---------- sound ---------- */
-// Short synthesized tones, no audio files. The context is created on the first tap, as browsers require.
-let AC=null,master=null;
+// Short synthesized tones, no audio files. Phones only let sound start from a finished gesture (finger up, click),
+// not from the finger-down that the game reacts to, so every finished gesture wakes the audio up.
+let AC=null,master=null,primed=false;
 function audio(){
   if(!S.snd)return null;
   try{
     if(!AC){const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;
       AC=new C();master=AC.createGain();master.gain.value=.55;master.connect(AC.destination);}
-    if(AC.state==="suspended")AC.resume();
+    if(AC.state!=="running")AC.resume().catch(()=>{});
     return AC;
   }catch(e){return null;}
 }
@@ -300,6 +301,11 @@ const SFX={
   lose(){tone(330,330,.18,"triangle",.15);tone(220,185,.4,"triangle",.15,.18);},
   undo(){tone(520,330,.11,"sine",.13);}
 };
+function unlock(){
+  const a=audio();if(!a||primed)return;
+  try{const s=a.createBufferSource();s.buffer=a.createBuffer(1,1,22050);s.connect(a.destination);s.start(0);primed=true;}catch(e){}
+}
+for(const ev of["pointerup","touchend","click","keydown"])window.addEventListener(ev,unlock,{capture:true,passive:true});
 function sndUI(){$("snd").setAttribute("aria-pressed",S.snd?"true":"false");}
 const stars=u=>u<=0?3:u===1?2:1;
 const starStr=n=>"★★★".slice(0,n)+"☆☆☆".slice(0,3-n);
