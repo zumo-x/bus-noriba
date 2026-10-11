@@ -71,6 +71,8 @@ canvas{display:block;width:100%;aspect-ratio:360/532;touch-action:manipulation;c
 .btn:disabled{opacity:.4;cursor:default}
 .btn:active:not(:disabled){translate:0 2px;box-shadow:none}
 .btn:focus-visible,.nav:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.btn.snd{flex:none;width:42px;font-size:17px;padding-block:8px}
+.btn.snd[aria-pressed="false"]{text-decoration:line-through;color:var(--muted)}
 .btn small{font-weight:500;font-variant-numeric:tabular-nums;opacity:.8;margin-left:3px}
 
 .dialog{position:absolute;inset:0;background:var(--scrim);border-radius:12px;display:grid;place-items:center;padding:16px;z-index:5}
@@ -117,7 +119,8 @@ canvas{display:block;width:100%;aspect-ratio:360/532;touch-action:manipulation;c
     <button class="btn" id="undo">もどす<small id="undoN">×3</small></button>
     <button class="btn" id="retry">最初から</button>
     <button class="btn" id="rec">きろく</button>
-    <button class="btn" id="help">あそびかた</button>
+    <button class="btn" id="help">遊び方</button>
+    <button class="btn snd" id="snd" aria-pressed="true" aria-label="効果音">♪</button>
   </footer>
 </main>
 
@@ -213,10 +216,10 @@ function posAt(P,s){
 // Claude page, the viewer's own private document, which survives closing the app and follows the account.
 const KEY="busnoriba.v3";
 let G=null,TH={},sc=1,autoHelp=false,askedPersist=false;
-let S={max:1,cur:1,help:false,rec:{}};          // rec[level] = [times cleared, fewest undos, best seconds]
+let S={max:1,cur:1,help:false,snd:true,rec:{}};          // rec[level] = [times cleared, fewest undos, best seconds]
 let cloud=null,cloudOn=false,cloudBusy=false,cloudWant=false,cloudLast="";
 function clean(s){
-  const o={max:Math.max(1,(s&&s.max)|0),cur:Math.max(1,(s&&s.cur)|0),help:!!(s&&s.help),rec:{}},r=s&&s.rec;
+  const o={max:Math.max(1,(s&&s.max)|0),cur:Math.max(1,(s&&s.cur)|0),help:!!(s&&s.help),snd:!(s&&s.snd===false),rec:{}},r=s&&s.rec;
   if(r&&typeof r==="object")for(const k in r){const v=r[k];if(Array.isArray(v)&&(k|0)>0)o.rec[k|0]=[Math.max(1,v[0]|0),Math.max(0,v[1]|0),Math.max(0,v[2]|0)];}
   for(const k in o.rec)if(+k>=o.max)o.max=+k+1;
   if(o.cur>o.max)o.cur=o.max;
@@ -238,6 +241,7 @@ function mergeSave(c){
   const before=JSON.stringify(S),ahead=c.max>S.max;
   if(ahead){S.max=c.max;S.cur=c.cur;}
   if(c.help)S.help=true;
+  S.snd=c.snd;
   for(const k in c.rec){const a=S.rec[k],b=c.rec[k];
     S.rec[k]=a?[Math.max(a[0],b[0]),Math.min(a[1],b[1]),a[2]&&b[2]?Math.min(a[2],b[2]):(a[2]||b[2])]:b;}
   S=clean(S);
@@ -259,11 +263,44 @@ async function initCloud(){
         if(S.help&&autoHelp&&!dialogEl.hidden){autoHelp=false;dialogEl.hidden=true;}
         if(m.ahead&&G&&!G.hist.length&&!G.over&&G.L!==S.cur){load(S.cur);say("つづきから：レベル "+S.cur,true);}
         if(G)G.hud="";
+        sndUI();
       }
     }
     if(snap.exists||S.max>1||S.help)pushCloud();   // a brand-new visitor has nothing to store yet
   }catch(e){}
 }
+/* ---------- sound ---------- */
+// Short synthesized tones, no audio files. The context is created on the first tap, as browsers require.
+let AC=null,master=null;
+function audio(){
+  if(!S.snd)return null;
+  try{
+    if(!AC){const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;
+      AC=new C();master=AC.createGain();master.gain.value=.55;master.connect(AC.destination);}
+    if(AC.state==="suspended")AC.resume();
+    return AC;
+  }catch(e){return null;}
+}
+function tone(f0,f1,dur,type,vol,delay){
+  const a=audio();if(!a)return;
+  try{
+    const t=a.currentTime+(delay||0),o=a.createOscillator(),g=a.createGain();
+    o.type=type;o.frequency.setValueAtTime(f0,t);if(f1!==f0)o.frequency.exponentialRampToValueAtTime(f1,t+dur);
+    g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+.01);g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    o.connect(g);g.connect(master);o.start(t);o.stop(t+dur+.03);
+  }catch(e){}
+}
+const SFX={
+  go(){tone(105,230,.24,"sawtooth",.1);tone(320,560,.12,"triangle",.1,.03);},          // bus pulls out
+  bump(){tone(150,70,.13,"square",.12);},                                                // blocked
+  full(){tone(210,210,.07,"square",.1);tone(165,165,.1,"square",.1,.09);},              // no free bay
+  step(k){const f=560+k*52;tone(f,f,.055,"triangle",.1);},                              // one person boards, rising per seat
+  depart(){tone(784,784,.14,"sine",.17);tone(659,659,.26,"sine",.17,.14);},             // bus-stop chime: full, leaving
+  win(){[523,659,784,1047].forEach((f,i)=>tone(f,f,i===3?.4:.15,"triangle",.17,.12+i*.11));},
+  lose(){tone(330,330,.18,"triangle",.15);tone(220,185,.4,"triangle",.15,.18);},
+  undo(){tone(520,330,.11,"sine",.13);}
+};
+function sndUI(){$("snd").setAttribute("aria-pressed",S.snd?"true":"false");}
 const stars=u=>u<=0?3:u===1?2:1;
 const starStr=n=>"★★★".slice(0,n)+"☆☆☆".slice(0,3-n);
 const mmss=s=>Math.floor(s/60)+":"+String(s%60).padStart(2,"0");
@@ -316,18 +353,18 @@ function snap(){return{qi:G.qi,seq:G.seq,bay:G.bay.slice(),b:G.buses.map(b=>{
 function tapBus(b){
   if(!G||G.over||b.state!=="lot")return;
   const pr=probe(b);
-  if(!pr.clear){b.state="bump";b.t=0;b.dmax=Math.max(3,pr.d);pr.blocker.flash=340;say("前のバスがじゃまで出られない");return;}
+  if(!pr.clear){b.state="bump";b.t=0;b.dmax=Math.max(3,pr.d);pr.blocker.flash=340;SFX.bump();say("前のバスがじゃまで出られない");return;}
   const s=G.bay.indexOf(-1);
-  if(s<0){b.state="bump";b.t=0;b.dmax=4;say("のりばがいっぱい。乗り終わるまで待とう",true);return;}
+  if(s<0){b.state="bump";b.t=0;b.dmax=4;SFX.full();say("のりばがいっぱい。乗り終わるまで待とう",true);return;}
   G.hist.push(snap());
-  b.state="exit";b.t=0;b.d=0;b.dmax=pr.d;b.slot=s;b.order=++G.seq;G.bay[s]=b.id;G.started=true;
+  b.state="exit";b.t=0;b.d=0;b.dmax=pr.d;b.slot=s;b.order=++G.seq;G.bay[s]=b.id;G.started=true;SFX.go();
 }
 function board(){
   if(G.qi>=G.queue.length)return;
   const c=G.queue[G.qi];let b=null;
   for(const o of G.buses)if(o.state==="parked"&&o.color===c&&o.rem>0&&(!b||o.order<b.order))b=o;
   if(!b)return;
-  b.rem--;G.qi++;
+  b.rem--;G.qi++;SFX.step(b.cap-b.rem);
   G.walkers.push({c,t:0,x:slotX(b.slot),y:slotY-b.len*PARK/2+4});
   if(b.rem===0){b.state="full";b.t=0;}
 }
@@ -345,7 +382,7 @@ function update(dt){
     if(b.state==="bump"){b.t+=dt/240;if(b.t>=1){b.state="lot";b.t=0;}}
     else if(b.state==="exit"){b.t+=dt/300;b.d+=dt*.5*(.6+b.t);if(b.d>=b.dmax){b.state="arrive";b.t=0;}}
     else if(b.state==="arrive"){b.t+=dt/230;if(b.t>=1){b.state="parked";b.t=0;}}
-    else if(b.state==="full"){b.t+=dt/300;if(b.t>=1){b.state="leave";b.t=0;G.bay[b.slot]=-1;}}
+    else if(b.state==="full"){b.t+=dt/300;if(b.t>=1){b.state="leave";b.t=0;G.bay[b.slot]=-1;SFX.depart();}}
     else if(b.state==="leave"){b.t+=dt/320;if(b.t>=1)b.state="gone";}
   }
   G.acc+=dt;while(G.acc>=62){G.acc-=62;board();}
@@ -366,7 +403,7 @@ function update(dt){
 }
 function lose(){
   G.over=true;G.end="lose";
-  say("のりばがいっぱいで動けない",true);
+  say("のりばがいっぱいで動けない",true);SFX.lose();
   endDialog();
 }
 function win(){
@@ -377,7 +414,7 @@ function win(){
   if(G.L+1>S.max)S.max=G.L+1;
   save(G.L+1);   // reopening the game continues at the next level
   if(!askedPersist){askedPersist=true;try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});}catch(e){}}
-  say("全員のせた。発車オーライ",true);
+  say("全員のせた。発車オーライ",true);SFX.win();
   endDialog();
 }
 function endDialog(){
@@ -422,7 +459,7 @@ function undo(){
   G.undos--;G.used++;G.over=false;G.end=null;G.stuckT=0;dialogEl.hidden=true;
   G.qi=s.qi;G.qv=s.qi;G.seq=s.seq;G.bay=s.bay;G.walkers=[];
   G.buses.forEach((b,i)=>{b.state=s.b[i][0];b.slot=s.b[i][1];b.rem=s.b[i][2];b.order=s.b[i][3];b.t=0;b.d=0;b.flash=0;});
-  say("1手もどした");
+  say("1手もどした");SFX.undo();
 }
 
 /* ---------- drawing ---------- */
@@ -524,6 +561,7 @@ $("undo").addEventListener("click",undo);
 $("retry").addEventListener("click",()=>load(G.L));
 $("help").addEventListener("click",howto);
 $("rec").addEventListener("click",records);
+$("snd").addEventListener("click",()=>{S.snd=!S.snd;sndUI();save();if(S.snd)SFX.step(3);});
 $("prev").addEventListener("click",()=>{if(G.L>1)load(G.L-1);});
 $("next").addEventListener("click",()=>{if(G.L<S.max)load(G.L+1);});
 window.addEventListener("resize",fit);
@@ -538,14 +576,14 @@ function frame(now){
   requestAnimationFrame(frame);
 }
 function start(d){
-  S=readLocal();
+  S=readLocal();sndUI();
   readTheme();fit();
   load(Math.min((d&&d.level)||S.cur||1,S.max));
   if(!S.help){autoHelp=true;howto();}
   requestAnimationFrame(frame);
   initCloud();
 }
-window.__busnoriba={get G(){return G},get S(){return S},get cloudOn(){return cloudOn},load,tap:id=>tapBus(G.buses[id]),speed:v=>{TS=v;}};
+window.__busnoriba={get audio(){return AC?AC.state:"none"},get G(){return G},get S(){return S},get cloudOn(){return cloudOn},load,tap:id=>tapBus(G.buses[id]),speed:v=>{TS=v;}};
 try{window.claude?.hot?.snapshot?.(()=>({level:G?G.L:1}));}catch(e){}
 if(window.claude?.hot?.ready)window.claude.hot.ready(start);else start(window.claude?.hot?.data??{});
 })();
