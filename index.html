@@ -283,36 +283,40 @@ function audio(){
     return AC;
   }catch(e){return null;}
 }
-// One soft voice: a sine with a couple of quiet overtones. "pluck" rings and fades like a small bell or marimba,
-// "hold" stays level like a toy horn. Everything is in C major pentatonic so overlapping sounds never clash.
-function voice(f,delay,dur,vol,kind,slide){
-  const a=audio();if(!a)return;
+// One bouncy game-console style blip: a square wave rounded off with a triangle and a low-pass filter.
+// "scoop" starts the note slightly flat and snaps up (the bounce), "slide" bends it by the end, "hold" is how
+// much of the note stays at full level before it fades. Everything is in C major pentatonic so overlaps never clash.
+function chip(f,delay,dur,vol,o){
+  const a=audio();if(!a)return;o=o||{};
   try{
-    const t=a.currentTime+(delay||0),g=a.createGain(),hold=kind==="hold";
-    g.gain.setValueAtTime(.0001,t);
-    if(hold){g.gain.linearRampToValueAtTime(vol,t+.015);g.gain.setValueAtTime(vol,t+Math.max(.02,dur-.06));}
-    else g.gain.linearRampToValueAtTime(vol,t+.006);
-    g.gain.exponentialRampToValueAtTime(.0001,t+dur);
-    g.connect(master);
-    for(const p of hold?[[1,1],[2,.32],[3,.1]]:[[1,1],[2,.2],[4,.05]]){
-      const o=a.createOscillator(),pg=a.createGain();o.type="sine";pg.gain.value=p[1];
-      o.frequency.setValueAtTime(f*p[0],t);if(slide)o.frequency.exponentialRampToValueAtTime(f*p[0]*slide,t+dur);
-      o.connect(pg);pg.connect(g);o.start(t);o.stop(t+dur+.05);
+    const t=a.currentTime+(delay||0),g=a.createGain(),lp=a.createBiquadFilter();
+    lp.type="lowpass";lp.frequency.value=o.cut||Math.min(5200,Math.max(1400,f*3.2));lp.Q.value=.7;
+    g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(vol,t+.004);
+    g.gain.setValueAtTime(vol,t+dur*(o.hold==null?.3:o.hold));g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    lp.connect(g);g.connect(master);
+    for(const w of o.wave?[[o.wave,1]]:[["square",.5],["triangle",.85]]){
+      const os=a.createOscillator(),og=a.createGain();os.type=w[0];og.gain.value=w[1];
+      os.frequency.setValueAtTime(f*(o.scoop||1),t);
+      if(o.scoop)os.frequency.exponentialRampToValueAtTime(f,t+.02);
+      if(o.slide)os.frequency.exponentialRampToValueAtTime(f*o.slide,t+dur);
+      os.connect(og);og.connect(lp);os.start(t);os.stop(t+dur+.04);
     }
   }catch(e){}
 }
-const NOTE={D4:294,E4:330,A4:440,C5:523,D5:587,E5:659,G5:784,A5:880,C6:1047,E6:1319};
+const NOTE={E4:330,A4:440,C5:523,D5:587,E5:659,G5:784,A5:880,C6:1047,E6:1319,G6:1568,C7:2093};
 const SEATS=[NOTE.C5,NOTE.D5,NOTE.E5,NOTE.G5,NOTE.A5,NOTE.C6];
 const SFX={
-  go(){for(const n of[NOTE.E5,NOTE.G5]){voice(n,0,.08,.075,"hold");voice(n,.12,.22,.075,"hold",1.015);}},   // toy horn: pup-puu
-  bump(){voice(NOTE.A4,0,.1,.09);voice(NOTE.E4,.07,.16,.09);},                                           // blocked: soft "poko"
-  full(){voice(NOTE.D4,0,.16,.1);voice(NOTE.D4,.14,.22,.1);},                                            // no free bay: low "pon pon"
-  step(k){voice(SEATS[(k-1)%SEATS.length],0,.22,.07);},                                                  // one person boards, climbing the scale
-  depart(){voice(NOTE.G5,0,.4,.085);voice(NOTE.C6,.075,.45,.085);voice(NOTE.E6,.15,.7,.085);},           // full bus leaves: little bell run
-  win(){[NOTE.C5,NOTE.E5,NOTE.G5,NOTE.C6,NOTE.E6].forEach((n,i)=>voice(n,.2+i*.1,.55,.085));
-        [NOTE.C5,NOTE.E5,NOTE.G5,NOTE.C6].forEach(n=>voice(n,.78,1.3,.06));},
-  lose(){voice(NOTE.E5,0,.34,.085);voice(NOTE.C5,.17,.34,.085);voice(NOTE.A4,.34,.8,.085);},
-  undo(){voice(NOTE.G5,0,.13,.065);voice(NOTE.E5,.06,.18,.065);}
+  go(){[NOTE.E6,NOTE.C6,NOTE.E6,NOTE.C6,NOTE.G6].forEach((n,i)=>chip(n,i*.048,i===4?.14:.07,.05,{scoop:.92,hold:.1}));},   // rolling "ko-ro-ko-ro-pon"
+  bump(){chip(330,0,.13,.075,{wave:"triangle",slide:.5,cut:1200});chip(247,.11,.1,.055,{wave:"triangle",slide:.7,cut:1200});},  // blocked: springy "boyon"
+  full(){chip(NOTE.E4,0,.08,.06,{cut:900,hold:.7});chip(NOTE.E4,.11,.13,.06,{cut:900,hold:.7});},                             // no free bay: soft "bu-bu"
+  step(k){chip(SEATS[(k-1)%SEATS.length],0,.075,.04,{scoop:.9,hold:.2});},                                                    // one person boards: "pi", climbing
+  depart(){chip(NOTE.E6,0,.06,.05,{hold:.6});chip(NOTE.G6,.055,.06,.05,{hold:.6});chip(NOTE.C7,.11,.4,.05,{hold:.2});},        // full bus leaves: "pi-ro-rin"
+  win(){[NOTE.G5,NOTE.C6,NOTE.E6,NOTE.G6,NOTE.C7].forEach((n,i)=>chip(n,.18+i*.07,.09,.05,{scoop:.94,hold:.5}));
+        [NOTE.C6,NOTE.E6,NOTE.G6,NOTE.C7].forEach(n=>chip(n,.6,.75,.035,{hold:.45}));
+        chip(NOTE.C5,.6,.75,.07,{wave:"triangle",hold:.45,cut:1600});},
+  lose(){chip(NOTE.E5,0,.15,.05);chip(NOTE.C5,.16,.15,.05);chip(NOTE.A4,.32,.15,.05);
+         chip(NOTE.E4,.5,.5,.075,{wave:"triangle",slide:.94,cut:1200});},
+  undo(){chip(NOTE.E6,0,.05,.045);chip(NOTE.C6,.05,.09,.045);}
 };
 function unlock(){
   const a=audio();if(!a||primed)return;
