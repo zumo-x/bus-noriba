@@ -26,7 +26,7 @@ body{margin:0;font-size:14px}
   --bg:#dde5ea; --panel:#f5f8fa; --ink:#17252e; --muted:#566974; --line:#c3ced6;
   --track:#dde6ec; --road:#3d4952; --slot:#b4c0c8; --lot:#cbd5dc;
   --accent:#0d6b85; --accent-ink:#ffffff;
-  --led-bg:#16110a; --led:#ffb319; --led-dim:#a87720; --scrim:rgba(18,28,35,.62);
+  --led-bg:#16110a; --led:#ffb319; --led-dim:#a87720; --scrim:rgba(18,28,35,.62); --star:#b07800;
   --f-led:"DotGothic16","Osaka-Mono","MS Gothic",monospace;
   --f-ui:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Yu Gothic UI",system-ui,sans-serif;
 }
@@ -34,13 +34,13 @@ body{margin:0;font-size:14px}
   :root:not([data-theme="light"]){
     --bg:#10181e; --panel:#1a252d; --ink:#e6edf1; --muted:#8fa1ac; --line:#2c3a44;
     --track:#25333c; --road:#0a0f13; --slot:#56646e; --lot:#1e2a32;
-    --accent:#3aa9c4; --accent-ink:#06222b; --scrim:rgba(4,8,11,.72); color-scheme:dark;
+    --accent:#3aa9c4; --accent-ink:#06222b; --scrim:rgba(4,8,11,.72); --star:#f5c542; color-scheme:dark;
   }
 }
 :root[data-theme="dark"]{
   --bg:#10181e; --panel:#1a252d; --ink:#e6edf1; --muted:#8fa1ac; --line:#2c3a44;
   --track:#25333c; --road:#0a0f13; --slot:#56646e; --lot:#1e2a32;
-  --accent:#3aa9c4; --accent-ink:#06222b; --scrim:rgba(4,8,11,.72); color-scheme:dark;
+  --accent:#3aa9c4; --accent-ink:#06222b; --scrim:rgba(4,8,11,.72); --star:#f5c542; color-scheme:dark;
 }
 body{background:var(--bg);color:var(--ink);font-family:var(--f-ui);font-weight:500;
   -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
@@ -64,8 +64,8 @@ button{font:inherit;color:inherit;touch-action:manipulation}
 .stage{position:relative}
 canvas{display:block;width:100%;aspect-ratio:360/532;touch-action:manipulation;cursor:pointer;border-radius:12px}
 
-.ctl{display:flex;gap:8px}
-.btn{flex:1;border:0;border-radius:12px;padding:11px 6px;font-weight:800;font-size:14px;cursor:pointer;
+.ctl{display:flex;gap:6px}
+.btn{flex:1;border:0;border-radius:12px;padding:11px 4px;font-weight:800;font-size:13px;cursor:pointer;min-width:0;
   background:var(--panel);box-shadow:0 3px 0 var(--line);white-space:nowrap}
 .btn.go{background:var(--accent);color:var(--accent-ink);box-shadow:0 3px 0 rgba(0,0,0,.3)}
 .btn:disabled{opacity:.4;cursor:default}
@@ -81,6 +81,20 @@ canvas{display:block;width:100%;aspect-ratio:360/532;touch-action:manipulation;c
 .card ol{margin:0;padding-left:1.4em;text-align:left;font-size:15px;line-height:1.55;display:flex;flex-direction:column;gap:6px}
 .card ol b{color:var(--accent);font-weight:800}
 .card .acts{display:flex;flex-direction:column;gap:8px}
+.card p b{color:var(--ink);font-variant-numeric:tabular-nums}
+.card .stars{font-size:30px;letter-spacing:.14em;color:var(--star);line-height:1}
+.card .note{font-size:12px}
+.card.wide{width:100%;padding:16px 12px 12px}
+.tiles{position:relative;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;max-height:262px;overflow-y:auto;padding:2px}
+.tile{border:0;border-radius:10px;background:var(--bg);color:var(--ink);padding:6px 2px 4px;display:flex;flex-direction:column;
+  align-items:center;gap:1px;cursor:pointer;min-width:0;font:inherit}
+.tile b{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.2}
+.tile span{font-size:10px;color:var(--muted);white-space:nowrap}
+.tile.done span{color:var(--star)}
+.tile small{font-size:10px;color:var(--muted);min-height:1.3em;font-variant-numeric:tabular-nums}
+.tile.here{outline:2px solid var(--accent);outline-offset:-2px}
+.tile:disabled{opacity:.4;cursor:default}
+.tile:focus-visible{outline:3px solid var(--accent);outline-offset:-3px}
 </style>
 </head>
 <body>
@@ -100,8 +114,9 @@ canvas{display:block;width:100%;aspect-ratio:360/532;touch-action:manipulation;c
   </div>
 
   <footer class="ctl">
-    <button class="btn" id="undo">1手もどす<small id="undoN">×3</small></button>
+    <button class="btn" id="undo">もどす<small id="undoN">×3</small></button>
     <button class="btn" id="retry">最初から</button>
+    <button class="btn" id="rec">きろく</button>
     <button class="btn" id="help">あそびかた</button>
   </footer>
 </main>
@@ -194,17 +209,72 @@ function posAt(P,s){
 }
 
 /* ---------- state ---------- */
-let G=null,maxL=1,seenHelp=false,TH={},sc=1;
-function loadSave(){try{const s=JSON.parse(localStorage.getItem("busnoriba.v3")||"{}");return{max:Math.max(1,s.max|0),cur:Math.max(1,s.cur|0),help:!!s.help}}catch(e){return{max:1,cur:1,help:false}}}
-function save(){try{localStorage.setItem("busnoriba.v3",JSON.stringify({max:maxL,cur:G.L,help:seenHelp}))}catch(e){}}
+// The save lives in two places: this browser (instant, and the only place on a self-hosted copy) and, on the
+// Claude page, the viewer's own private document, which survives closing the app and follows the account.
+const KEY="busnoriba.v3";
+let G=null,TH={},sc=1,autoHelp=false,askedPersist=false;
+let S={max:1,cur:1,help:false,rec:{}};          // rec[level] = [times cleared, fewest undos, best seconds]
+let cloud=null,cloudOn=false,cloudBusy=false,cloudWant=false,cloudLast="";
+function clean(s){
+  const o={max:Math.max(1,(s&&s.max)|0),cur:Math.max(1,(s&&s.cur)|0),help:!!(s&&s.help),rec:{}},r=s&&s.rec;
+  if(r&&typeof r==="object")for(const k in r){const v=r[k];if(Array.isArray(v)&&(k|0)>0)o.rec[k|0]=[Math.max(1,v[0]|0),Math.max(0,v[1]|0),Math.max(0,v[2]|0)];}
+  for(const k in o.rec)if(+k>=o.max)o.max=+k+1;
+  if(o.cur>o.max)o.cur=o.max;
+  return o;
+}
+function readLocal(){try{return clean(JSON.parse(localStorage.getItem(KEY)||"{}"));}catch(e){return clean(null);}}
+function writeLocal(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
+function save(next){if(G)S.cur=next||G.L;writeLocal();pushCloud();}
+function pushCloud(){
+  if(!cloud)return;
+  const body=JSON.stringify(S);
+  if(body===cloudLast)return;
+  if(cloudBusy){cloudWant=true;return;}
+  cloudBusy=true;
+  cloud.set(JSON.parse(body)).then(()=>{cloudLast=body;},e=>{if(!e||e.code!=="unavailable"){cloud=null;cloudOn=false;}})
+    .then(()=>{cloudBusy=false;if(cloudWant){cloudWant=false;pushCloud();}});
+}
+function mergeSave(c){
+  const before=JSON.stringify(S),ahead=c.max>S.max;
+  if(ahead){S.max=c.max;S.cur=c.cur;}
+  if(c.help)S.help=true;
+  for(const k in c.rec){const a=S.rec[k],b=c.rec[k];
+    S.rec[k]=a?[Math.max(a[0],b[0]),Math.min(a[1],b[1]),a[2]&&b[2]?Math.min(a[2],b[2]):(a[2]||b[2])]:b;}
+  S=clean(S);
+  return{changed:JSON.stringify(S)!==before,ahead};
+}
+async function initCloud(){
+  try{
+    if(!window.claude||typeof window.claude.use!=="function")return;
+    const caps=await Promise.all([window.claude.use("db"),window.claude.use("user")]);
+    if(!caps[0]||!caps[1])return;
+    const id=await caps[1].id();if(!id)return;
+    const ref=caps[0].doc("data/users/"+id+"/save"),snap=await ref.get();
+    cloud=ref;cloudOn=true;
+    if(snap.exists){
+      const theirs=clean(snap.data()),m=mergeSave(theirs);
+      if(JSON.stringify(S)===JSON.stringify(theirs))cloudLast=JSON.stringify(S);
+      if(m.changed){
+        writeLocal();
+        if(S.help&&autoHelp&&!dialogEl.hidden){autoHelp=false;dialogEl.hidden=true;}
+        if(m.ahead&&G&&!G.hist.length&&!G.over&&G.L!==S.cur){load(S.cur);say("つづきから：レベル "+S.cur,true);}
+        if(G)G.hud="";
+      }
+    }
+    if(snap.exists||S.max>1||S.help)pushCloud();   // a brand-new visitor has nothing to store yet
+  }catch(e){}
+}
+const stars=u=>u<=0?3:u===1?2:1;
+const starStr=n=>"★★★".slice(0,n)+"☆☆☆".slice(0,3-n);
+const mmss=s=>Math.floor(s/60)+":"+String(s%60).padStart(2,"0");
 function say(t,hot){msgEl.textContent=t;msgEl.classList.toggle("hot",!!hot);}
 function intro(L){
-  if(L===1)return "列の色の順を見て、出す順を考えよう";
-  if(L===2)return "ちがう色を出すと、のりばを1台ふさぐ";
+  if(L===1)return "列の色を見て、出す順を考えよう";
+  if(L===2)return "ちがう色のバスは、のりばをふさぐ";
   if(L===3)return "長いバスは6人、短いバスは4人";
   if(L===4)return "列が輪になった。回りながら進む";
   if(L===6)return "ななめに停まったバスが登場";
-  if(L===11)return "のりばが4台に。そのぶんバスも増えた";
+  if(L===11)return "のりばが4台に増えた";
   if(L===12)return "いろんな向きのバスが登場";
   return G.queue.length+"人を バス"+G.buses.length+"台で運ぶ";
 }
@@ -213,7 +283,7 @@ function load(L){
   G={L,slots:lv.slots,ring:lv.ring,queue:lv.queue,blk:lv.blk,qi:0,qv:0,
     buses:lv.buses.map((b,i)=>({id:i,x:b.x,y:b.y,a:b.a,len:b.len,w:b.w,cap:b.cap,color:b.color,
       state:"lot",slot:-1,rem:b.cap,order:0,t:0,d:0,dmax:0,flash:0})),
-    bay:new Array(lv.slots).fill(-1),seq:0,walkers:[],hist:[],undos:3,used:0,over:false,stuckT:0,acc:0,
+    bay:new Array(lv.slots).fill(-1),seq:0,walkers:[],hist:[],undos:3,used:0,over:false,end:null,res:null,started:false,ms:0,stuckT:0,acc:0,
     path:makePath(lv.ring,lv.queue.length),hud:""};
   dialogEl.hidden=true;
   say(intro(L));save();
@@ -250,7 +320,7 @@ function tapBus(b){
   const s=G.bay.indexOf(-1);
   if(s<0){b.state="bump";b.t=0;b.dmax=4;say("のりばがいっぱい。乗り終わるまで待とう",true);return;}
   G.hist.push(snap());
-  b.state="exit";b.t=0;b.d=0;b.dmax=pr.d;b.slot=s;b.order=++G.seq;G.bay[s]=b.id;
+  b.state="exit";b.t=0;b.d=0;b.dmax=pr.d;b.slot=s;b.order=++G.seq;G.bay[s]=b.id;G.started=true;
 }
 function board(){
   if(G.qi>=G.queue.length)return;
@@ -268,6 +338,7 @@ function isStuck(){
   return true;
 }
 function update(dt){
+  if(G.started&&!G.over)G.ms+=dt;
   dt*=TS;
   for(const b of G.buses){
     if(b.flash>0)b.flash-=dt;
@@ -285,32 +356,61 @@ function update(dt){
     if(G.qi>=G.queue.length&&G.buses.every(b=>b.state==="gone"))win();
     else if(isStuck()){G.stuckT+=dt;if(G.stuckT>500)lose();}else G.stuckT=0;
   }
-  const hud=G.L+"|"+(G.queue.length-G.qi)+"|"+G.undos+"|"+G.hist.length+"|"+maxL+"|"+G.over;
+  const hud=G.L+"|"+(G.queue.length-G.qi)+"|"+G.undos+"|"+G.hist.length+"|"+S.max+"|"+G.over;
   if(hud!==G.hud){G.hud=hud;
     $("route").textContent="レベル "+G.L;
     $("left").textContent="のこり "+(G.queue.length-G.qi)+"人";
     $("undoN").textContent="×"+G.undos;
     $("undo").disabled=!G.hist.length||G.undos<=0;
-    $("prev").disabled=G.L<=1;$("next").disabled=G.L>=maxL;}
+    $("prev").disabled=G.L<=1;$("next").disabled=G.L>=S.max;}
 }
 function lose(){
-  G.over=true;const c=COLORS[G.queue[G.qi]].n;
+  G.over=true;G.end="lose";
   say("のりばがいっぱいで動けない",true);
-  show("のりばが満車","<p>先頭の"+c+"の人が乗れるバスが、のりばに1台もない。</p>",
-    (G.undos>0?[["1手もどす（のこり"+G.undos+"回）",undo,true]]:[]).concat([["最初からやり直す",()=>load(G.L),G.undos<=0]]));
+  endDialog();
 }
 function win(){
-  G.over=true;if(G.L+1>maxL)maxL=G.L+1;save();
+  G.over=true;G.end="win";
+  const sec=Math.max(1,Math.round(G.ms/1000)),old=S.rec[G.L];
+  G.res={sec,used:G.used,better:!!old&&(G.used<old[1]||(old[2]>0&&sec<old[2]))};
+  S.rec[G.L]=old?[old[0]+1,Math.min(old[1],G.used),old[2]?Math.min(old[2],sec):sec]:[1,G.used,sec];
+  if(G.L+1>S.max)S.max=G.L+1;
+  save(G.L+1);   // reopening the game continues at the next level
+  if(!askedPersist){askedPersist=true;try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});}catch(e){}}
   say("全員のせた。発車オーライ",true);
-  show("レベル "+G.L+" クリア","<p>"+G.queue.length+"人を バス"+G.buses.length+"台で運んだ。もどした回数 "+G.used+"</p>",
-    [["レベル "+(G.L+1)+" へ",()=>load(G.L+1),true],["もう一度このレベル",()=>load(G.L),false]]);
+  endDialog();
 }
+function endDialog(){
+  if(G.end==="win"){const r=G.res;
+    show("レベル "+G.L+" クリア",'<p class="stars" aria-label="星'+stars(r.used)+'つ">'+starStr(stars(r.used))+"</p><p>タイム <b>"+mmss(r.sec)+"</b>　もどした回数 <b>"+r.used+"</b>"+(r.better?"<br>自己ベスト更新":"")+"</p>",
+      [["レベル "+(G.L+1)+" へ",()=>load(G.L+1),true],["もう一度このレベル",()=>load(G.L),false]]);
+  }else{
+    show("のりばが満車","<p>先頭の"+COLORS[G.queue[G.qi]].n+"の人が乗れるバスが、のりばに1台もない。</p>",
+      (G.undos>0?[["1手もどす（のこり"+G.undos+"回）",undo,true]]:[]).concat([["最初からやり直す",()=>load(G.L),G.undos<=0]]));
+  }
+}
+function closeDlg(){if(G&&G.end)endDialog();else dialogEl.hidden=true;}
 function howto(){
   show("あそびかた","<ol><li>下の駐車場で、<b>矢印の先があいているバス</b>をタップ</li><li>バスが「のりば」に停まる</li><li>列の先頭から、<b>同じ色の人</b>が乗る。満員になったら発車</li></ol><p>のりばが全部うまって、先頭の人が乗れなくなったら負け。ちがう色のバスは、その色の人が先頭に来るまでのりばをふさぐ。バスの数字は乗れる人数。</p>",
-    [["はじめる",()=>{dialogEl.hidden=true;seenHelp=true;save();},true]]);
+    [["はじめる",()=>{autoHelp=false;if(!S.help){S.help=true;save();}closeDlg();},true]]);
 }
-function show(title,html,acts){
-  dialogEl.innerHTML='<div class="card" role="dialog" aria-label="'+title+'"><h2>'+title+"</h2>"+html+'<div class="acts"></div></div>';
+function records(){
+  const N=Math.max(LEVELS.length,Math.ceil(S.max/5)*5);let done=0,st=0,t="";
+  for(let L=1;L<=N;L++){
+    const r=S.rec[L],cleared=!!r||L<S.max,open=L<=S.max;
+    if(cleared)done++;if(r)st+=stars(r[1]);
+    t+='<button type="button" class="tile'+(cleared?" done":"")+(L===G.L?" here":"")+'" data-l="'+L+'"'+(open?"":" disabled")+
+      ' aria-label="レベル '+L+(cleared?" クリア済み":open?" 挑戦中":" まだ遊べない")+'"><b>'+L+"</b><span>"+
+      (r?starStr(stars(r[1])):cleared?"クリア":open?"挑戦中":"－")+"</span><small>"+(r&&r[2]?mmss(r[2]):"")+"</small></button>";
+  }
+  show("きろく","<p>クリア <b>"+done+"</b> 面　★ <b>"+st+'</b></p><div class="tiles">'+t+'</div><p class="note">'+
+    (cloudOn?"セーブ先：このページ（Claude側に保存。閉じても残る）":"セーブ先：このブラウザの中")+"</p>",[["とじる",closeDlg,true]],"wide");
+  const box=dialogEl.querySelector(".tiles"),here=box.querySelector(".here");
+  box.addEventListener("click",e=>{const b=e.target.closest(".tile");if(b&&!b.disabled)load(+b.dataset.l);});
+  if(here)box.scrollTop=Math.max(0,here.offsetTop-90);
+}
+function show(title,html,acts,cls){
+  dialogEl.innerHTML='<div class="card'+(cls?" "+cls:"")+'" role="dialog" aria-label="'+title+'"><h2>'+title+"</h2>"+html+'<div class="acts"></div></div>';
   const boxEl=dialogEl.querySelector(".acts");
   acts.forEach(a=>{const b=document.createElement("button");b.type="button";b.className="btn"+(a[2]?" go":"");b.textContent=a[0];b.addEventListener("click",a[1]);boxEl.appendChild(b);});
   dialogEl.hidden=false;
@@ -319,7 +419,7 @@ function show(title,html,acts){
 function undo(){
   if(!G.hist.length||G.undos<=0)return;
   const s=G.hist.pop();
-  G.undos--;G.used++;G.over=false;G.stuckT=0;dialogEl.hidden=true;
+  G.undos--;G.used++;G.over=false;G.end=null;G.stuckT=0;dialogEl.hidden=true;
   G.qi=s.qi;G.qv=s.qi;G.seq=s.seq;G.bay=s.bay;G.walkers=[];
   G.buses.forEach((b,i)=>{b.state=s.b[i][0];b.slot=s.b[i][1];b.rem=s.b[i][2];b.order=s.b[i][3];b.t=0;b.d=0;b.flash=0;});
   say("1手もどした");
@@ -423,8 +523,9 @@ cv.addEventListener("pointerdown",e=>{
 $("undo").addEventListener("click",undo);
 $("retry").addEventListener("click",()=>load(G.L));
 $("help").addEventListener("click",howto);
+$("rec").addEventListener("click",records);
 $("prev").addEventListener("click",()=>{if(G.L>1)load(G.L-1);});
-$("next").addEventListener("click",()=>{if(G.L<maxL)load(G.L+1);});
+$("next").addEventListener("click",()=>{if(G.L<S.max)load(G.L+1);});
 window.addEventListener("resize",fit);
 if(window.ResizeObserver)new ResizeObserver(fit).observe(cv);
 if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",readTheme);
@@ -437,13 +538,14 @@ function frame(now){
   requestAnimationFrame(frame);
 }
 function start(d){
-  const s=loadSave();maxL=s.max;seenHelp=s.help;
+  S=readLocal();
   readTheme();fit();
-  load(Math.min((d&&d.level)||s.cur||1,maxL));
-  if(!seenHelp)howto();
+  load(Math.min((d&&d.level)||S.cur||1,S.max));
+  if(!S.help){autoHelp=true;howto();}
   requestAnimationFrame(frame);
+  initCloud();
 }
-window.__busnoriba={get G(){return G},load,tap:id=>tapBus(G.buses[id]),speed:v=>{TS=v;}};
+window.__busnoriba={get G(){return G},get S(){return S},get cloudOn(){return cloudOn},load,tap:id=>tapBus(G.buses[id]),speed:v=>{TS=v;}};
 try{window.claude?.hot?.snapshot?.(()=>({level:G?G.L:1}));}catch(e){}
 if(window.claude?.hot?.ready)window.claude.hot.ready(start);else start(window.claude?.hot?.data??{});
 })();
