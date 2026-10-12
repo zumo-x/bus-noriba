@@ -116,10 +116,10 @@ canvas{display:block;width:100%;aspect-ratio:360/532;touch-action:manipulation;c
   </div>
 
   <footer class="ctl">
+    <button class="btn" id="hint">ヒント</button>
     <button class="btn" id="undo">もどす<small id="undoN">×3</small></button>
     <button class="btn" id="retry">最初から</button>
-    <button class="btn" id="rec">きろく</button>
-    <button class="btn" id="help">遊び方</button>
+    <button class="btn" id="menu">メニュー</button>
     <button class="btn snd" id="snd" aria-pressed="true" aria-label="効果音">♪</button>
   </footer>
 </main>
@@ -216,11 +216,14 @@ function posAt(P,s){
 // Claude page, the viewer's own private document, which survives closing the app and follows the account.
 const KEY="busnoriba.v3";
 let G=null,TH={},sc=1,autoHelp=false,askedPersist=false;
-let S={max:1,cur:1,help:false,snd:true,rec:{}};          // rec[level] = [times cleared, fewest undos, best seconds]
+let S={max:1,cur:1,help:false,snd:true,sk:[],rec:{}};          // rec[level] = [times cleared, fewest undos, best seconds]
 let cloud=null,cloudOn=false,cloudBusy=false,cloudWant=false,cloudLast="";
 function clean(s){
-  const o={max:Math.max(1,(s&&s.max)|0),cur:Math.max(1,(s&&s.cur)|0),help:!!(s&&s.help),snd:!(s&&s.snd===false),rec:{}},r=s&&s.rec;
+  const o={max:Math.max(1,(s&&s.max)|0),cur:Math.max(1,(s&&s.cur)|0),help:!!(s&&s.help),snd:!(s&&s.snd===false),sk:[],rec:{}},r=s&&s.rec;
   if(r&&typeof r==="object")for(const k in r){const v=r[k];if(Array.isArray(v)&&(k|0)>0)o.rec[k|0]=[Math.max(1,v[0]|0),Math.max(0,v[1]|0),Math.max(0,v[2]|0)];}
+  if(s&&Array.isArray(s.sk))for(const v of s.sk){const k=v|0;if(k>0&&!o.sk.includes(k))o.sk.push(k);}
+  o.sk.sort((a,b)=>a-b);
+  for(const k of o.sk)if(k>=o.max)o.max=k+1;
   for(const k in o.rec)if(+k>=o.max)o.max=+k+1;
   if(o.cur>o.max)o.cur=o.max;
   return o;
@@ -241,6 +244,7 @@ function mergeSave(c){
   const before=JSON.stringify(S),ahead=c.max>S.max;
   if(ahead){S.max=c.max;S.cur=c.cur;}
   if(c.help)S.help=true;
+  for(const k of c.sk)if(!S.sk.includes(k))S.sk.push(k);
   S.snd=c.snd;
   for(const k in c.rec){const a=S.rec[k],b=c.rec[k];
     S.rec[k]=a?[Math.max(a[0],b[0]),Math.min(a[1],b[1]),a[2]&&b[2]?Math.min(a[2],b[2]):(a[2]||b[2])]:b;}
@@ -343,7 +347,7 @@ function load(L){
   G={L,slots:lv.slots,ring:lv.ring,queue:lv.queue,blk:lv.blk,qi:0,qv:0,
     buses:lv.buses.map((b,i)=>({id:i,x:b.x,y:b.y,a:b.a,len:b.len,w:b.w,cap:b.cap,color:b.color,
       state:"lot",slot:-1,rem:b.cap,order:0,t:0,d:0,dmax:0,flash:0})),
-    bay:new Array(lv.slots).fill(-1),seq:0,walkers:[],hist:[],undos:3,used:0,over:false,end:null,res:null,started:false,ms:0,stuckT:0,acc:0,
+    bay:new Array(lv.slots).fill(-1),seq:0,walkers:[],hist:[],undos:3,used:0,over:false,end:null,res:null,started:false,ms:0,stuckT:0,acc:0,hintId:-1,demo:null,
     path:makePath(lv.ring,lv.queue.length),hud:""};
   dialogEl.hidden=true;
   say(intro(L));save();
@@ -380,7 +384,68 @@ function tapBus(b){
   const s=G.bay.indexOf(-1);
   if(s<0){b.state="bump";b.t=0;b.dmax=4;SFX.full();say("のりばがいっぱい。乗り終わるまで待とう",true);return;}
   G.hist.push(snap());
-  b.state="exit";b.t=0;b.d=0;b.dmax=pr.d;b.slot=s;b.order=++G.seq;G.bay[s]=b.id;G.started=true;SFX.go();
+  b.state="exit";b.t=0;b.d=0;b.dmax=pr.d;b.slot=s;b.order=++G.seq;G.bay[s]=b.id;G.started=true;G.hintId=-1;SFX.go();
+}
+/* ---------- hint, demo, skip ---------- */
+// Exact search from the position on screen: the buses to tap, in order, so the level can still be cleared.
+// Returns the list, false if this position can no longer be cleared, or null if it ran out of thinking time.
+function solveFrom(cap){
+  const m=G.buses.length,q=G.queue,n=q.length,blk=G.blk,memo=new Set(),path=[];let nodes=0;
+  const lot0=G.buses.map(b=>b.state==="lot"||b.state==="bump"?1:0);
+  const park0=G.buses.filter(b=>b.slot>=0&&b.rem>0&&(b.state==="exit"||b.state==="arrive"||b.state==="parked"))
+    .sort((a,b)=>a.order-b.order).map(b=>[b.color,b.rem]);
+  function go(lot,parked,qi){
+    for(;qi<n;){const c=q[qi];let b=null;for(const p of parked)if(p[0]===c&&p[1]>0){b=p;break;}if(!b)break;b[1]--;qi++;if(!b[1])parked.splice(parked.indexOf(b),1);}
+    if(qi>=n)return true;
+    if(parked.length>=G.slots)return false;
+    const key=lot.join("")+"|"+parked.map(p=>p[0]+":"+p[1]).join(",");if(memo.has(key))return false;memo.add(key);
+    if(++nodes>cap)throw 0;
+    const c=q[qi],mv=[];for(let i=0;i<m;i++)if(lot[i]&&blk[i].every(j=>!lot[j]))mv.push(i);
+    mv.sort((a,b)=>(G.buses[b].color===c)-(G.buses[a].color===c));
+    for(const i of mv){const L=lot.slice();L[i]=0;const P=parked.map(p=>p.slice());P.push([G.buses[i].color,G.buses[i].cap]);path.push(i);if(go(L,P,qi))return true;path.pop();}
+    return false;
+  }
+  try{return go(lot0,park0,G.qi)?path:false;}catch(e){return null;}
+}
+function hint(){
+  if(!G||G.over||G.demo)return;
+  say("考え中…");
+  setTimeout(()=>{
+    const p=solveFrom(400000);
+    if(p===null){say("読みきれなかった。もどすか最初からを試して",true);return;}
+    if(p===false){say("この形からは解けない。もどすか最初から",true);SFX.bump();return;}
+    if(!p.length){say("あとは乗り終わるのを待つだけ",true);return;}
+    if(G.hintId!==p[0])G.used++;          // a hint costs a star, like an undo
+    G.hintId=p[0];
+    say(G.bay.indexOf(-1)<0?"乗り終わるのを待って、光るバスを出そう":"光っているバスを出そう",true);
+  },30);
+}
+// Demo: replays the level from the start with a worked solution. It never counts as a clear.
+function demo(){
+  load(G.L);
+  const p=solveFrom(3e6);
+  if(!p){say("お手本を作れなかった",true);return;}
+  G.demo={path:p,i:0,wait:0};
+  say("お手本中。最初からを押すと止まる",true);
+}
+function demoStep(dt){
+  const d=G.demo;
+  if(d.wait>0){d.wait-=dt;if(d.wait<=0){tapBus(G.buses[d.path[d.i]]);d.i++;}return;}
+  if(d.i>=d.path.length||G.qi>=G.queue.length||G.bay.indexOf(-1)<0)return;
+  const c=G.queue[G.qi];
+  if(G.buses.some(o=>o.slot>=0&&o.rem>0&&o.color===c&&(o.state==="exit"||o.state==="arrive"||o.state==="parked")))return;
+  G.hintId=d.path[d.i];d.wait=700;
+}
+function skip(){
+  const L=G.L;
+  if(!S.rec[L]&&!S.sk.includes(L))S.sk.push(L);
+  if(L+1>S.max)S.max=L+1;
+  load(L+1);
+  say("レベル "+L+" をとばした");
+}
+function menu(){
+  show("メニュー","<p>お手本は最初から自動で解いて見せる。とばした面は、きろくから後でいつでも遊べる。</p>",
+    [["お手本を見る",demo,true],["このレベルをとばす",skip,false],["きろく",records,false],["遊び方",howto,false],["とじる",closeDlg,false]]);
 }
 function board(){
   if(G.qi>=G.queue.length)return;
@@ -398,6 +463,7 @@ function isStuck(){
   return true;
 }
 function update(dt){
+  if(G.demo&&!G.over)demoStep(dt);
   if(G.started&&!G.over)G.ms+=dt;
   dt*=TS;
   for(const b of G.buses){
@@ -416,12 +482,13 @@ function update(dt){
     if(G.qi>=G.queue.length&&G.buses.every(b=>b.state==="gone"))win();
     else if(isStuck()){G.stuckT+=dt;if(G.stuckT>500)lose();}else G.stuckT=0;
   }
-  const hud=G.L+"|"+(G.queue.length-G.qi)+"|"+G.undos+"|"+G.hist.length+"|"+S.max+"|"+G.over;
+  const hud=G.L+"|"+(G.queue.length-G.qi)+"|"+G.undos+"|"+G.hist.length+"|"+S.max+"|"+G.over+"|"+!!G.demo;
   if(hud!==G.hud){G.hud=hud;
     $("route").textContent="レベル "+G.L;
     $("left").textContent="のこり "+(G.queue.length-G.qi)+"人";
     $("undoN").textContent="×"+G.undos;
-    $("undo").disabled=!G.hist.length||G.undos<=0;
+    $("undo").disabled=!G.hist.length||G.undos<=0||!!G.demo;
+    $("hint").disabled=G.over||!!G.demo;
     $("prev").disabled=G.L<=1;$("next").disabled=G.L>=S.max;}
 }
 function lose(){
@@ -430,6 +497,7 @@ function lose(){
   endDialog();
 }
 function win(){
+  if(G.demo){G.over=true;G.end="demo";say("お手本おわり",true);SFX.win();endDialog();return;}
   G.over=true;G.end="win";
   const sec=Math.max(1,Math.round(G.ms/1000)),old=S.rec[G.L];
   G.res={sec,used:G.used,better:!!old&&(G.used<old[1]||(old[2]>0&&sec<old[2]))};
@@ -441,27 +509,28 @@ function win(){
   endDialog();
 }
 function endDialog(){
+  if(G.end==="demo"){show("お手本おわり","<p>この順番でバスを出すと全員乗れる。</p>",[["自分でやってみる",()=>load(G.L),true],["とばして次へ",skip,false]]);return;}
   if(G.end==="win"){const r=G.res;
-    show("レベル "+G.L+" クリア",'<p class="stars" aria-label="星'+stars(r.used)+'つ">'+starStr(stars(r.used))+"</p><p>タイム <b>"+mmss(r.sec)+"</b>　もどした回数 <b>"+r.used+"</b>"+(r.better?"<br>自己ベスト更新":"")+"</p>",
+    show("レベル "+G.L+" クリア",'<p class="stars" aria-label="星'+stars(r.used)+'つ">'+starStr(stars(r.used))+"</p><p>タイム <b>"+mmss(r.sec)+"</b>　もどす・ヒント <b>"+r.used+"</b> 回"+(r.better?"<br>自己ベスト更新":"")+"</p>",
       [["レベル "+(G.L+1)+" へ",()=>load(G.L+1),true],["もう一度このレベル",()=>load(G.L),false]]);
   }else{
     show("のりばが満車","<p>先頭の"+COLORS[G.queue[G.qi]].n+"の人が乗れるバスが、のりばに1台もない。</p>",
-      (G.undos>0?[["1手もどす（のこり"+G.undos+"回）",undo,true]]:[]).concat([["最初からやり直す",()=>load(G.L),G.undos<=0]]));
+      (G.undos>0?[["1手もどす（のこり"+G.undos+"回）",undo,true]]:[]).concat([["最初からやり直す",()=>load(G.L),G.undos<=0],["お手本を見る",demo,false]]));
   }
 }
 function closeDlg(){if(G&&G.end)endDialog();else dialogEl.hidden=true;}
 function howto(){
-  show("あそびかた","<ol><li>下の駐車場で、<b>矢印の先があいているバス</b>をタップ</li><li>バスが「のりば」に停まる</li><li>列の先頭から、<b>同じ色の人</b>が乗る。満員になったら発車</li></ol><p>のりばが全部うまって、先頭の人が乗れなくなったら負け。ちがう色のバスは、その色の人が先頭に来るまでのりばをふさぐ。バスの数字は乗れる人数。</p>",
+  show("あそびかた","<ol><li>下の駐車場で、<b>矢印の先があいているバス</b>をタップ</li><li>バスが「のりば」に停まる</li><li>列の先頭から、<b>同じ色の人</b>が乗る。満員になったら発車</li></ol><p>のりばが全部うまって、先頭の人が乗れなくなったら負け。ちがう色のバスは、その色の人が先頭に来るまでのりばをふさぐ。バスの数字は乗れる人数。</p><p>こまったら「ヒント」で次に出すバスが光る（★がひとつ減る）。「メニュー」からお手本ととばすが選べる。</p>",
     [["はじめる",()=>{autoHelp=false;if(!S.help){S.help=true;save();}closeDlg();},true]]);
 }
 function records(){
   const N=Math.max(LEVELS.length,Math.ceil(S.max/5)*5);let done=0,st=0,t="";
   for(let L=1;L<=N;L++){
-    const r=S.rec[L],cleared=!!r||L<S.max,open=L<=S.max;
+    const r=S.rec[L],skipped=!r&&S.sk.includes(L),cleared=!!r||(L<S.max&&!skipped),open=L<=S.max;
     if(cleared)done++;if(r)st+=stars(r[1]);
     t+='<button type="button" class="tile'+(cleared?" done":"")+(L===G.L?" here":"")+'" data-l="'+L+'"'+(open?"":" disabled")+
-      ' aria-label="レベル '+L+(cleared?" クリア済み":open?" 挑戦中":" まだ遊べない")+'"><b>'+L+"</b><span>"+
-      (r?starStr(stars(r[1])):cleared?"クリア":open?"挑戦中":"－")+"</span><small>"+(r&&r[2]?mmss(r[2]):"")+"</small></button>";
+      ' aria-label="レベル '+L+(cleared?" クリア済み":skipped?" スキップ":open?" 挑戦中":" まだ遊べない")+'"><b>'+L+"</b><span>"+
+      (r?starStr(stars(r[1])):skipped?"スキップ":cleared?"クリア":open?"挑戦中":"－")+"</span><small>"+(r&&r[2]?mmss(r[2]):"")+"</small></button>";
   }
   show("きろく","<p>クリア <b>"+done+"</b> 面　★ <b>"+st+'</b></p><div class="tiles">'+t+'</div><p class="note">'+
     (cloudOn?"セーブ先：このページ（Claude側に保存。閉じても残る）":"セーブ先：このブラウザの中")+"</p>",[["とじる",closeDlg,true]],"wide");
@@ -477,7 +546,8 @@ function show(title,html,acts,cls){
   const f=boxEl.querySelector("button");if(f)f.focus({preventScroll:true});
 }
 function undo(){
-  if(!G.hist.length||G.undos<=0)return;
+  if(G.demo||!G.hist.length||G.undos<=0)return;
+  G.hintId=-1;
   const s=G.hist.pop();
   G.undos--;G.used++;G.over=false;G.end=null;G.stuckT=0;dialogEl.hidden=true;
   G.qi=s.qi;G.qv=s.qi;G.seq=s.seq;G.bay=s.bay;G.walkers=[];
@@ -565,6 +635,16 @@ function draw(now){
     else if(b.state!=="lot")continue;
     drawBus(b.x+Math.cos(b.a)*d,b.y+Math.sin(b.a)*d,b.a,b.len,b.w,COLORS[b.color],null,b.flash,0,b.cap);
   }
+  const hb=G.hintId>=0?G.buses[G.hintId]:null;
+  if(hb&&(hb.state==="lot"||hb.state==="bump")){
+    const pulse=.5+.5*Math.sin(now/160);
+    ctx.save();ctx.translate(hb.x,hb.y);ctx.rotate(hb.a);
+    ctx.strokeStyle="rgba(255,255,255,"+(.6+.4*pulse)+")";ctx.lineWidth=3.5;
+    rr(-hb.len/2-4-pulse*3,-hb.w/2-4-pulse*3,hb.len+8+pulse*6,hb.w+8+pulse*6,10);ctx.stroke();ctx.restore();
+    const lbl=G.demo?"おてほん":"ここ！",lw=G.demo?54:40,ly=hb.y-hb.len/2-14<LOT.y+8?hb.y+hb.len/2+14:hb.y-hb.len/2-14;
+    ctx.font="800 11px "+FONT;ctx.textAlign="center";ctx.textBaseline="middle";
+    ctx.fillStyle=TH.ink;rr(hb.x-lw/2,ly-9,lw,18,9);ctx.fill();ctx.fillStyle=TH.panel;ctx.fillText(lbl,hb.x,ly+.5);
+  }
   ctx.restore();
 }
 
@@ -572,7 +652,7 @@ function draw(now){
 function fit(){const cw=cv.clientWidth||360,dpr=Math.min(3,window.devicePixelRatio||1);
   cv.width=Math.round(cw*dpr);cv.height=Math.round(cw*H/W*dpr);sc=cv.width/W;}
 cv.addEventListener("pointerdown",e=>{
-  if(!G||G.over)return;
+  if(!G||G.over||G.demo)return;
   const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)*W/r.width,y=(e.clientY-r.top)*H/r.height;
   let hit=null,hd=1e9;
   for(const b of G.buses){ if(b.state!=="lot")continue;
@@ -582,8 +662,8 @@ cv.addEventListener("pointerdown",e=>{
 });
 $("undo").addEventListener("click",undo);
 $("retry").addEventListener("click",()=>load(G.L));
-$("help").addEventListener("click",howto);
-$("rec").addEventListener("click",records);
+$("hint").addEventListener("click",hint);
+$("menu").addEventListener("click",menu);
 $("snd").addEventListener("click",()=>{S.snd=!S.snd;sndUI();save();if(S.snd)SFX.depart();});
 $("prev").addEventListener("click",()=>{if(G.L>1)load(G.L-1);});
 $("next").addEventListener("click",()=>{if(G.L<S.max)load(G.L+1);});
@@ -606,7 +686,7 @@ function start(d){
   requestAnimationFrame(frame);
   initCloud();
 }
-window.__busnoriba={get audio(){return AC?AC.state:"none"},get G(){return G},get S(){return S},get cloudOn(){return cloudOn},load,tap:id=>tapBus(G.buses[id]),speed:v=>{TS=v;}};
+window.__busnoriba={hint,demo,skip,solveFrom,get audio(){return AC?AC.state:"none"},get G(){return G},get S(){return S},get cloudOn(){return cloudOn},load,tap:id=>tapBus(G.buses[id]),speed:v=>{TS=v;}};
 try{window.claude?.hot?.snapshot?.(()=>({level:G?G.L:1}));}catch(e){}
 if(window.claude?.hot?.ready)window.claude.hot.ready(start);else start(window.claude?.hot?.data??{});
 })();
