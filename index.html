@@ -429,20 +429,21 @@ function chip(f,delay,dur,vol,o){
     }
   }catch(e){}
 }
-const NOTE={E4:330,A4:440,C5:523,D5:587,E5:659,G5:784,A5:880,C6:1047,E6:1319,G6:1568,C7:2093};
+const NOTE={C4:262,G4:392,E4:330,A4:440,C5:523,D5:587,E5:659,G5:784,A5:880,C6:1047,E6:1319,G6:1568,C7:2093};
 const SEATS=[NOTE.C5,NOTE.D5,NOTE.E5,NOTE.G5,NOTE.A5,NOTE.C6];
 const SFX={
   go(){[NOTE.E6,NOTE.C6,NOTE.E6,NOTE.C6,NOTE.G6].forEach((n,i)=>chip(n,i*.048,i===4?.14:.07,.05,{scoop:.92,hold:.1}));},   // rolling "ko-ro-ko-ro-pon"
   bump(){chip(330,0,.13,.075,{wave:"triangle",slide:.5,cut:1200});chip(247,.11,.1,.055,{wave:"triangle",slide:.7,cut:1200});},  // blocked: springy "boyon"
   full(){chip(NOTE.E4,0,.08,.06,{cut:900,hold:.7});chip(NOTE.E4,.11,.13,.06,{cut:900,hold:.7});},                             // no free bay: soft "bu-bu"
   step(k){chip(SEATS[(k-1)%SEATS.length],0,.075,.04,{scoop:.9,hold:.2});},                                                    // one person boards: "pi", climbing
-  depart(){chip(NOTE.E6,0,.06,.05,{hold:.6});chip(NOTE.G6,.055,.06,.05,{hold:.6});chip(NOTE.C7,.11,.4,.05,{hold:.2});},        // full bus leaves: "pi-ro-rin"
-  win(){[NOTE.G5,NOTE.C6,NOTE.E6,NOTE.G6,NOTE.C7].forEach((n,i)=>chip(n,.18+i*.07,.09,.05,{scoop:.94,hold:.5}));
-        [NOTE.C6,NOTE.E6,NOTE.G6,NOTE.C7].forEach(n=>chip(n,.6,.75,.035,{hold:.45}));
+  depart(){chip(NOTE.G4,0,.08,.075,{hold:.05,cut:1500});chip(NOTE.C5,.075,.17,.075,{hold:.05,cut:1500});   // full bus leaves: woody "ko-ton"
+           chip(NOTE.C4,.075,.14,.06,{wave:"triangle",cut:900,slide:.9});},
+  win(){[NOTE.G4,NOTE.C5,NOTE.E5,NOTE.G5,NOTE.C6].forEach((n,i)=>chip(n,.18+i*.07,.09,.05,{scoop:.94,hold:.5,cut:2200}));
+        [NOTE.C5,NOTE.E5,NOTE.G5,NOTE.C6].forEach(n=>chip(n,.6,.75,.035,{hold:.45,cut:2200}));
         chip(NOTE.C5,.6,.75,.07,{wave:"triangle",hold:.45,cut:1600});},
   lose(){chip(NOTE.E5,0,.15,.05);chip(NOTE.C5,.16,.15,.05);chip(NOTE.A4,.32,.15,.05);
          chip(NOTE.E4,.5,.5,.075,{wave:"triangle",slide:.94,cut:1200});},
-  undo(){chip(NOTE.E6,0,.05,.045);chip(NOTE.C6,.05,.09,.045);}
+  undo(){chip(NOTE.E5,0,.05,.05,{cut:1800});chip(NOTE.C5,.05,.09,.05,{cut:1800});}
 };
 function unlock(){
   const a=audio();if(!a||primed)return;
