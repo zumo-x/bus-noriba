@@ -722,7 +722,8 @@ function drawBus(x,y,a,len,w,col,label,flash,scale,cap){
     ctx.lineWidth=3.5;ctx.strokeStyle=col.d;ctx.strokeText(label,x,y+3);ctx.fillStyle="#fff";ctx.fillText(label,x,y+3);
   }
 }
-function pawn(x,y,col){
+function pawn(x,y,col,s){
+  if(s&&s!==1){ctx.save();ctx.translate(x,y);ctx.scale(s,s);pawn(0,0,col);ctx.restore();return;}
   ctx.fillStyle=col.c;ctx.strokeStyle=col.d;ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(x-5.2,y);ctx.quadraticCurveTo(x-5.6,y-9.5,x,y-9.5);ctx.quadraticCurveTo(x+5.6,y-9.5,x+5.2,y);
   ctx.quadraticCurveTo(x,y+2.2,x-5.2,y);ctx.closePath();ctx.fill();ctx.stroke();
@@ -739,22 +740,31 @@ function draw(now){
   ctx.strokeStyle=TH.track;ctx.lineWidth=P.A*LW+9;ctx.lineCap="round";ctx.lineJoin="round";ctx.beginPath();
   for(let i=0;i<P.pts.length&&P.cum[i]<=P.show;i++){const p=P.pts[i];if(i)ctx.lineTo(p[0],p[1]);else ctx.moveTo(p[0],p[1]);}
   ctx.stroke();
-  if(G.qi<G.queue.length){
-    ctx.font="800 10px "+FONT;ctx.textAlign="left";ctx.textBaseline="middle";ctx.fillStyle=TH.muted;
-    ctx.fillText("◀ 先頭",GATE.x+P.A*LW/2+10,GATE.y-6);
-  }
   const ppl=[];
   const vis=Math.floor((P.len-4)/SP)*P.A,end=Math.min(G.queue.length,G.qi+vis);
+  const ps=P.A>=3?.8:1;let head=null;     // a big crowd gets slightly smaller people so colours don't run together
   for(let k=G.qi;k<end;k++){
-    const p=posAt(P,(k-G.qv)/P.A*SP),off=((k%P.A)-(P.A-1)/2)*LW;
-    ppl.push([p.x+p.nx*off,p.y+p.ny*off,G.queue[k]]);
+    const p=posAt(P,(k-G.qv)/P.A*SP),off=((k%P.A)-(P.A-1)/2)*LW,e=[p.x+p.nx*off,p.y+p.ny*off,G.queue[k]];
+    if(k===G.qi)head=e;else ppl.push(e);
   }
   ppl.sort((a,b)=>a[1]-b[1]);
-  for(const p of ppl)pawn(p[0],p[1],COLORS[p[2]]);
+  for(const p of ppl)pawn(p[0],p[1],COLORS[p[2]],ps);
+  if(head){   // the front person: drawn last, on a light disc with a dark ring
+    ctx.fillStyle=TH.panel;ctx.strokeStyle=TH.ink;ctx.lineWidth=2;
+    ctx.beginPath();ctx.ellipse(head[0],head[1]-7*ps,8*ps+3,11*ps+3,0,0,7);ctx.fill();ctx.stroke();
+    pawn(head[0],head[1],COLORS[head[2]],ps);
+  }
   if(G.queue.length>end){
     const t="ほか "+(G.queue.length-end)+"人",lx=GATE.x,ly=G.ring?84:posAt(P,P.len-2).y-14;
     ctx.font="800 11px "+FONT;ctx.textAlign="center";ctx.textBaseline="middle";const tw=ctx.measureText(t).width+14;
     ctx.fillStyle=TH.ink;rr(lx-tw/2,ly-9,tw,18,9);ctx.fill();ctx.fillStyle=TH.panel;ctx.fillText(t,lx,ly+.5);
+  }
+  if(G.qi<G.queue.length){   // "next" strip: the front person big, then the following six in order
+    const x0=226,y0=152,pw=130,ph=20;
+    ctx.fillStyle=TH.lot;rr(x0,y0,pw,ph,10);ctx.fill();
+    ctx.font="800 10px "+FONT;ctx.textAlign="left";ctx.textBaseline="middle";ctx.fillStyle=TH.ink;ctx.fillText("つぎ",x0+8,y0+ph/2+.5);
+    pawn(x0+38,y0+ph-1.5,COLORS[G.queue[G.qi]],1);
+    for(let i=1;i<=6&&G.qi+i<G.queue.length;i++)pawn(x0+42+i*13,y0+ph-3,COLORS[G.queue[G.qi+i]],.62);
   }
   // bus stop bays
   ctx.fillStyle=TH.road;rr(0,RY,W,RH,12);ctx.fill();
@@ -769,7 +779,7 @@ function draw(now){
     else if(b.state==="leave")drawBus(x,slotY-b.t*b.t*(RH+30),-Math.PI/2,pl(b),24,col,null,0,PARK);
   }
   ctx.restore();
-  for(const w of G.walkers){const t=ease(w.t);pawn(GATE.x+(w.x-GATE.x)*t,GATE.y+(w.y+8-GATE.y)*t,COLORS[w.c]);}
+  for(const w of G.walkers){const t=ease(w.t);pawn(GATE.x+(w.x-GATE.x)*t,GATE.y+(w.y+8-GATE.y)*t,COLORS[w.c],G.path.A>=3?.8:1);}
   // parking lot
   ctx.fillStyle=TH.lot;rr(LOT.x-8,LOT.y-8,LOT.w+16,LOT.h+16,12);ctx.fill();
   ctx.save();rr(LOT.x-8,LOT.y-8,LOT.w+16,LOT.h+16,12);ctx.clip();
